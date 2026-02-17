@@ -288,7 +288,7 @@ export function GameBoard({ ws }: { ws: WS }) {
           {/* 中间信息 */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center z-0 pointer-events-none">
             <div className="font-display text-2xl opacity-20 tracking-[0.5em] mb-2" style={{ color: "var(--gold)" }}>
-              東方賭坊
+              東方遊藝
             </div>
             <div className="font-serif text-lg font-bold" style={{ color: "var(--text-gold)", textShadow: "0 2px 4px rgba(0,0,0,0.5)" }}>
               {isRevealing ? "开牌中" : phaseLabels[gameState.phase]}

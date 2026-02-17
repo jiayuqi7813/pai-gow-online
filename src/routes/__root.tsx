@@ -14,7 +14,7 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "牌九在线 - 多人骨牌游戏" },
+      { title: "骨牌游戏" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },

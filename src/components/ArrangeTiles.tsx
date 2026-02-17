@@ -264,7 +264,7 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
           {frontTiles.map((tile) => (
             <div
               key={tile.id}
-              className="flex flex-col items-center gap-0.5 cursor-grab active:cursor-grabbing"
+              className="flex flex-col items-center gap-0.5 cursor-grab active:cursor-grabbing touch-none"
               draggable
               onDragStart={(e) => handleDragStart(e, tile.id)}
               onTouchStart={(e) => handleTouchStart(e, tile.id)}
@@ -317,7 +317,7 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
           {backTiles.map((tile) => (
             <div
               key={tile.id}
-              className="flex flex-col items-center gap-0.5 cursor-grab active:cursor-grabbing"
+              className="flex flex-col items-center gap-0.5 cursor-grab active:cursor-grabbing touch-none"
               draggable
               onDragStart={(e) => handleDragStart(e, tile.id)}
               onTouchStart={(e) => handleTouchStart(e, tile.id)}
@@ -368,7 +368,7 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
               {unassigned.map((tile) => (
                 <div
                   key={tile.id}
-                  className="flex flex-col items-center gap-0.5 cursor-grab active:cursor-grabbing"
+                  className="flex flex-col items-center gap-0.5 cursor-grab active:cursor-grabbing touch-none"
                   draggable
                   onDragStart={(e) => handleDragStart(e, tile.id)}
                   onTouchStart={(e) => handleTouchStart(e, tile.id)}

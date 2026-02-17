@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ===================================================
-   牌九在线 — 「东方赌坊」设计系统
+   牌九在线 — 「东方游艺」设计系统
    Luxury Oriental: 紫檀 × 暗金 × 玉石
    =================================================== */
 
@@ -587,6 +587,11 @@ body {
 
 .animate-shake {
   animation: gentleShake 0.5s ease-in-out;
+}
+
+/* 工具类 */
+.touch-none {
+  touch-action: none;
 }
 
 @keyframes fadeIn {

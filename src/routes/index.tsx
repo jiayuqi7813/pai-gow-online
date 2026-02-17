@@ -80,7 +80,7 @@ function HomePage() {
             textShadow: "0 2px 20px rgba(201,168,76,0.3), 0 0 60px rgba(201,168,76,0.1)",
           }}
         >
-          牌九在线
+          牌九·东方
         </h1>
         <div className="flex items-center justify-center gap-4 mb-3">
           <div className="h-[1px] w-16" style={{ background: "linear-gradient(to right, transparent, var(--gold-dim))" }} />
@@ -314,7 +314,7 @@ function HomePage() {
 
       {/* 底部 */}
       <div className="mt-8 text-xs relative z-10 font-serif" style={{ color: "var(--text-muted)" }}>
-        牌九在线 v1.0 · 支持2-12人
+        牌九·东方 v1.0 · 支持2-12人
       </div>
     </div>
   );
