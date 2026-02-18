@@ -134,22 +134,29 @@ export function spectateRoom(
 export function requestJoinPlaying(
   roomId: string,
   playerId: string
-): { success: boolean; error?: string } {
+): { success: boolean; queued?: boolean; error?: string } {
   const room = rooms.get(roomId);
   if (!room) return { success: false, error: "房间不存在" };
 
   const player = room.players.find((p) => p.id === playerId);
   if (!player) return { success: false, error: "玩家不在房间" };
   if (!player.isSpectator) return { success: false, error: "你已经是参战玩家" };
+  if (player.wantToPlay) return { success: false, error: "已申请，等待本局结束" };
 
   const activePlayers = room.players.filter((p) => !p.isSpectator);
   if (activePlayers.length >= room.maxPlayers) {
     return { success: false, error: "参战玩家已满" };
   }
 
-  player.isSpectator = false;
-  player.isReady = false;
-  return { success: true };
+  if (room.phase === "waiting") {
+    player.isSpectator = false;
+    player.isReady = false;
+    player.wantToPlay = false;
+    return { success: true };
+  }
+
+  player.wantToPlay = true;
+  return { success: true, queued: true };
 }
 
 /** 在大厅中切换观战/参战状态 */

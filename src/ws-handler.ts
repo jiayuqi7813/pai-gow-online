@@ -341,13 +341,18 @@ function handleMessage(ws: WSWebSocket, data: string) {
       }
       const jpRoom = getRoom(jpRoomId);
       if (!jpRoom) return;
-      const jpPlayer = jpRoom.players.find((p) => p.id === jpPlayerId);
-      broadcastToRoom(jpRoomId, {
-        type: "spectator_to_player",
-        playerId: jpPlayerId,
-        playerName: jpPlayer?.name || "",
-      });
-      for (const p of jpRoom.players) sendFullState(p.id, jpRoomId);
+      if (jpResult.queued) {
+        broadcastToRoom(jpRoomId, { type: "join_playing_queued", playerId: jpPlayerId });
+        for (const p of jpRoom.players) sendFullState(p.id, jpRoomId);
+      } else {
+        const jpPlayer = jpRoom.players.find((p) => p.id === jpPlayerId);
+        broadcastToRoom(jpRoomId, {
+          type: "spectator_to_player",
+          playerId: jpPlayerId,
+          playerName: jpPlayer?.name || "",
+        });
+        for (const p of jpRoom.players) sendFullState(p.id, jpRoomId);
+      }
       break;
     }
 

@@ -501,6 +501,7 @@ export class GameEngine {
         if (!p.connected) continue;
         p.isSpectator = false;
         p.isReady = false;
+        p.wantToPlay = false;
         p.chips = 10000; // 重置筹码
         p.stats = { wins: 0, losses: 0, draws: 0, totalRounds: 0 };
         p.tiles = [];
@@ -509,6 +510,16 @@ export class GameEngine {
         p.bidAmount = 0;
       }
       return false;
+    }
+
+    // 将申请了"下局参战"的观战者转为参战玩家
+    for (const p of this.room.players) {
+      if (p.wantToPlay && p.isSpectator && p.connected) {
+        p.isSpectator = false;
+        p.isReady = false;
+        p.wantToPlay = false;
+        if (p.chips <= 0) p.chips = 10000;
+      }
     }
 
     this.room.roundNumber++;
@@ -606,6 +617,7 @@ export class GameEngine {
           if (!p.connected) continue;
           p.isSpectator = false;
           p.isReady = false;
+          p.wantToPlay = false;
           p.chips = 10000;
           p.stats = { wins: 0, losses: 0, draws: 0, totalRounds: 0 };
           p.tiles = [];

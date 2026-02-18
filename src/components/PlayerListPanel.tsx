@@ -123,28 +123,34 @@ export function PlayerListPanel({
           )}
 
           {/* 观战者的"请求参战"按钮 */}
-          {isSpectator && onJoinPlaying && (
-            <div className="px-3 pb-3" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-              <button
-                onClick={onJoinPlaying}
-                className="w-full mt-2 py-2 rounded-lg font-serif text-sm transition-all duration-200"
-                style={{
-                  background: "rgba(91,158,122,0.12)",
-                  border: "1px solid rgba(91,158,122,0.3)",
-                  color: "var(--accent-jade)",
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(91,158,122,0.2)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(91,158,122,0.12)";
-                }}
-              >
-                请求下局参战
-              </button>
-            </div>
-          )}
+          {isSpectator && onJoinPlaying && (() => {
+            const me = players.find((p) => p.id === myPlayerId);
+            const queued = me?.wantToPlay;
+            return (
+              <div className="px-3 pb-3" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                <button
+                  onClick={queued ? undefined : onJoinPlaying}
+                  disabled={queued}
+                  className="w-full mt-2 py-2 rounded-lg font-serif text-sm transition-all duration-200"
+                  style={{
+                    background: queued ? "rgba(255,255,255,0.04)" : "rgba(91,158,122,0.12)",
+                    border: queued ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(91,158,122,0.3)",
+                    color: queued ? "var(--text-muted)" : "var(--accent-jade)",
+                    cursor: queued ? "not-allowed" : "pointer",
+                    opacity: queued ? 0.7 : 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!queued) e.currentTarget.style.background = "rgba(91,158,122,0.2)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!queued) e.currentTarget.style.background = "rgba(91,158,122,0.12)";
+                  }}
+                >
+                  {queued ? "已申请，等待本局结束" : "请求下局参战"}
+                </button>
+              </div>
+            );
+          })()}
         </div>
       )}
     </>

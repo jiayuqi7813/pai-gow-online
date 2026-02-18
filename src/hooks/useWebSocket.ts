@@ -166,10 +166,25 @@ function handleServerMessage(msg: ServerMessage) {
           gameState: {
             ...gs3,
             players: gs3.players.map((p) =>
-              p.id === msg.playerId ? { ...p, isSpectator: false } : p
+              p.id === msg.playerId ? { ...p, isSpectator: false, wantToPlay: false } : p
             ),
           },
           isSpectator: msg.playerId === globalState.playerId ? false : globalState.isSpectator,
+        });
+      }
+      break;
+    }
+
+    case "join_playing_queued": {
+      const gsQ = globalState.gameState;
+      if (gsQ) {
+        updateState({
+          gameState: {
+            ...gsQ,
+            players: gsQ.players.map((p) =>
+              p.id === msg.playerId ? { ...p, wantToPlay: true } : p
+            ),
+          },
         });
       }
       break;

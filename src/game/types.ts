@@ -105,6 +105,8 @@ export interface Player {
   connected: boolean;
   /** 是否为观战者 */
   isSpectator: boolean;
+  /** 观战者已申请下一局参战 */
+  wantToPlay?: boolean;
   /** 胜负记录 */
   stats: PlayerStats;
 }
@@ -151,6 +153,7 @@ export type ServerMessage =
   | { type: "player_joined"; player: { id: string; name: string; chips: number; isSpectator: boolean } }
   | { type: "player_left"; playerId: string }
   | { type: "spectator_to_player"; playerId: string; playerName: string }
+  | { type: "join_playing_queued"; playerId: string }
   | { type: "game_started" }
   | { type: "bid_phase"; bidderId: string; bidOrder: string[] }
   | { type: "player_bid"; playerId: string; amount: number }
