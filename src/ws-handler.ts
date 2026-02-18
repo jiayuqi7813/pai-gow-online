@@ -24,6 +24,20 @@ const socketPlayerMap = new Map<WSWebSocket, string>();
 /** playerId -> roomId */
 const playerRoomCache = new Map<string, string>();
 
+/** 掉线计时器：30s 操作超时 + 60s 重连窗口 */
+const disconnectTimers = new Map<string, {
+  actionTimer: ReturnType<typeof setTimeout> | null;
+  reconnectTimer: ReturnType<typeof setTimeout>;
+}>();
+
+function clearDisconnectTimers(playerId: string) {
+  const timers = disconnectTimers.get(playerId);
+  if (!timers) return;
+  if (timers.actionTimer) clearTimeout(timers.actionTimer);
+  clearTimeout(timers.reconnectTimer);
+  disconnectTimers.delete(playerId);
+}
+
 function send(ws: WSWebSocket, msg: ServerMessage) {
   if (ws.readyState === 1 /* OPEN */) {
     ws.send(JSON.stringify(msg));
@@ -187,7 +201,22 @@ function handleMessage(ws: WSWebSocket, data: string) {
       peerSockets.set(msg.playerId, ws);
       socketPlayerMap.set(ws, msg.playerId);
       playerRoomCache.set(msg.playerId, msg.roomId);
-      sendFullState(msg.playerId, msg.roomId);
+      // 取消掉线计时器
+      clearDisconnectTimers(msg.playerId);
+      // 通知其他玩家该玩家已重连
+      const rjRoom = getRoom(msg.roomId);
+      if (rjRoom) {
+        const rjPlayer = rjRoom.players.find((p) => p.id === msg.playerId);
+        if (rjPlayer) {
+          broadcastToRoom(msg.roomId, {
+            type: "player_joined",
+            player: { id: msg.playerId, name: rjPlayer.name, chips: rjPlayer.chips, isSpectator: rjPlayer.isSpectator },
+          }, msg.playerId);
+        }
+        for (const p of rjRoom.players) sendFullState(p.id, msg.roomId);
+      } else {
+        sendFullState(msg.playerId, msg.roomId);
+      }
       break;
     }
 
@@ -382,14 +411,79 @@ function handleClose(ws: WSWebSocket) {
   const playerId = socketPlayerMap.get(ws);
   if (!playerId) return;
   const roomId = playerRoomCache.get(playerId);
+
   if (roomId) {
     const room = getRoom(roomId);
     if (room) {
-      const player = room.players.find((p) => p.id === playerId);
-      if (player) player.connected = false;
-      broadcastToRoom(roomId, { type: "player_left", playerId }, playerId);
+      if (room.phase === "waiting") {
+        // 等待阶段：直接移除玩家
+        const { room: updatedRoom } = leaveRoom(playerId);
+        broadcastToRoom(roomId, { type: "player_left", playerId }, playerId);
+        if (updatedRoom) {
+          for (const p of updatedRoom.players) sendFullState(p.id, roomId);
+        }
+        playerRoomCache.delete(playerId);
+      } else {
+        // 游戏进行中：标记断线，启动计时器
+        const engine = getEngine(roomId);
+        if (engine) {
+          engine.handlePlayerDisconnect(playerId);
+        } else {
+          const player = room.players.find((p) => p.id === playerId);
+          if (player) player.connected = false;
+        }
+
+        broadcastToRoom(roomId, { type: "player_left", playerId }, playerId);
+        for (const p of room.players) {
+          if (p.connected) sendFullState(p.id, roomId);
+        }
+
+        // 30s 操作超时：如果该玩家正阻塞流程，30s 后自动执行其操作
+        const actionTimer = engine && engine.isPlayerBlockingGame(playerId)
+          ? setTimeout(() => {
+              const currentRoom = getRoom(roomId);
+              const currentEngine = getEngine(roomId);
+              if (!currentRoom || !currentEngine) return;
+              const p = currentRoom.players.find((pl) => pl.id === playerId);
+              if (!p || p.connected) return; // 已重连则跳过
+
+              currentEngine.handlePlayerActionTimeout(playerId);
+              const events = currentEngine.getEvents();
+              if (events.length > 0) processEngineEvents(roomId, events);
+              for (const pl of currentRoom.players) {
+                if (pl.connected) sendFullState(pl.id, roomId);
+              }
+            }, 30_000)
+          : null;
+
+        // 60s 重连窗口：到期后真正踢出
+        const reconnectTimer = setTimeout(() => {
+          disconnectTimers.delete(playerId);
+          const currentRoom = getRoom(roomId);
+          const currentEngine = getEngine(roomId);
+          if (!currentRoom) return;
+          const p = currentRoom.players.find((pl) => pl.id === playerId);
+          if (!p || p.connected) return; // 已重连则跳过
+
+          if (currentEngine) {
+            currentEngine.handlePlayerKick(playerId);
+            const events = currentEngine.getEvents();
+            if (events.length > 0) processEngineEvents(roomId, events);
+          } else {
+            p.isSpectator = true;
+          }
+
+          for (const pl of currentRoom.players) {
+            if (pl.connected) sendFullState(pl.id, roomId);
+          }
+          playerRoomCache.delete(playerId);
+        }, 60_000);
+
+        disconnectTimers.set(playerId, { actionTimer, reconnectTimer });
+      }
     }
   }
+
   peerSockets.delete(playerId);
   socketPlayerMap.delete(ws);
 }

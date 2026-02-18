@@ -172,8 +172,18 @@ export class GameEngine {
   private advanceBid() {
     this.room.bidIndex++;
 
+    // 跳过断线/观战玩家
+    while (
+      this.room.bidIndex < this.room.bidOrder.length
+    ) {
+      const nextId = this.room.bidOrder[this.room.bidIndex];
+      const nextPlayer = this.room.players.find((p) => p.id === nextId);
+      if (nextPlayer && nextPlayer.connected && !nextPlayer.isSpectator) break;
+      this.emit({ type: "player_skip_bid", playerId: nextId });
+      this.room.bidIndex++;
+    }
+
     if (this.room.bidIndex >= this.room.bidOrder.length) {
-      // 所有人抢完了
       this.decideBanker();
     } else {
       this.room.currentBidderId = this.room.bidOrder[this.room.bidIndex];
@@ -504,6 +514,107 @@ export class GameEngine {
     this.room.roundNumber++;
     this.startBidPhase();
     return true;
+  }
+
+  /** 掉线：仅标记断线状态，不自动执行操作（由 ws-handler 的计时器控制） */
+  handlePlayerDisconnect(playerId: string): void {
+    const player = this.room.players.find((p) => p.id === playerId);
+    if (!player) return;
+    player.connected = false;
+  }
+
+  /** 检查掉线玩家是否正阻塞当前流程 */
+  isPlayerBlockingGame(playerId: string): boolean {
+    const player = this.room.players.find((p) => p.id === playerId);
+    if (!player || player.connected) return false;
+
+    if (this.room.phase === "bidding" && this.room.currentBidderId === playerId) return true;
+    if (this.room.phase === "betting" && playerId !== this.room.bankerId && player.betAmount === 0 && !player.isSpectator) return true;
+    if (this.room.phase === "arranging" && !player.arrangement && player.tiles.length === 4) return true;
+
+    return false;
+  }
+
+  /** 操作超时（30s）：掉线玩家仍未重连，自动执行其待处理操作 */
+  handlePlayerActionTimeout(playerId: string): void {
+    const player = this.room.players.find((p) => p.id === playerId);
+    if (!player || player.connected) return;
+
+    if (this.room.phase === "bidding" && this.room.currentBidderId === playerId) {
+      this.skipBid(playerId);
+    }
+
+    if (this.room.phase === "betting" && playerId !== this.room.bankerId && player.betAmount === 0 && !player.isSpectator) {
+      const bet = Math.min(MIN_BET, player.chips);
+      if (bet > 0) {
+        player.betAmount = bet;
+        this.emit({ type: "player_bet", playerId, amount: bet });
+        const nonBanker = this.room.players.filter(
+          (p) => p.id !== this.room.bankerId && p.connected && !p.isSpectator
+        );
+        if (nonBanker.every((p) => p.betAmount > 0)) {
+          this.dealTiles();
+        }
+      }
+    }
+
+    if (this.room.phase === "arranging" && !player.arrangement && player.tiles.length === 4) {
+      player.arrangement = findBestArrangement(player.tiles);
+      this.emit({ type: "player_arranged", playerId });
+      const active = this.getActivePlayers();
+      if (active.every((p) => p.arrangement !== null)) {
+        if (this.arrangeTimer) {
+          clearTimeout(this.arrangeTimer);
+          this.arrangeTimer = null;
+        }
+        this.compareAndSettle();
+      }
+    }
+  }
+
+  /** 踢出（60s）：重连窗口到期，将玩家转为观战者并检查人数 */
+  handlePlayerKick(playerId: string): void {
+    const player = this.room.players.find((p) => p.id === playerId);
+    if (!player || player.connected) return;
+
+    player.isSpectator = true;
+
+    // 再次执行操作超时逻辑，确保该玩家不阻塞流程（可能在 30s~60s 之间阶段发生了变化）
+    this.handlePlayerActionTimeout(playerId);
+
+    if (this.room.phase !== "waiting" && this.room.phase !== "settlement") {
+      const activeCount = this.getActivePlayers().length;
+      if (activeCount < this.room.minPlayersToStart) {
+        if (this.arrangeTimer) {
+          clearTimeout(this.arrangeTimer);
+          this.arrangeTimer = null;
+        }
+        const rankings = this.room.players
+          .filter((p) => p.connected || p.id === playerId)
+          .sort((a, b) => b.chips - a.chips)
+          .map((p) => ({ name: p.name, chips: p.chips, stats: { ...p.stats } }));
+        this.emit({
+          type: "game_over",
+          reason: `${player.name} 断线超时，在线玩家不足，游戏结束`,
+          rankings,
+          totalRounds: this.room.roundNumber,
+        });
+        this.room.phase = "waiting";
+        this.room.roundNumber = 0;
+        this.room.bankerId = null;
+        for (const p of this.room.players) {
+          if (!p.connected) continue;
+          p.isSpectator = false;
+          p.isReady = false;
+          p.chips = 10000;
+          p.stats = { wins: 0, losses: 0, draws: 0, totalRounds: 0 };
+          p.tiles = [];
+          p.arrangement = null;
+          p.betAmount = 0;
+          p.bidAmount = 0;
+        }
+      }
+    }
   }
 
   /** 获取房间的安全状态（隐藏其他玩家手牌） */

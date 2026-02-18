@@ -21,7 +21,7 @@ function HomePage() {
   const [playerName, setPlayerName] = useState("");
   const [roomCode, setRoomCode] = useState(joinRoomCode?.toUpperCase() ?? "");
   const navigate = useNavigate();
-  const { connected, roomId, gameState, createRoom, joinRoom, spectateRoom, lastError } = useWebSocket();
+  const { connected, reconnecting, roomId, gameState, createRoom, joinRoom, spectateRoom, lastError } = useWebSocket();
 
   useEffect(() => {
     if (roomId && gameState) {
@@ -106,7 +106,24 @@ function HomePage() {
       {/* 主面板 */}
       <div className="w-full max-w-md relative z-10" style={{ animationDelay: "0.15s" }}>
         <div className="panel-glass p-8 animate-slide-up">
-          {lastError && (
+          {reconnecting && (
+            <div className="flex flex-col items-center justify-center py-10 animate-fade-in">
+              <div className="w-10 h-10 mb-5 rounded-full animate-spin"
+                style={{
+                  border: "3px solid rgba(201,168,76,0.15)",
+                  borderTopColor: "var(--gold)",
+                }}
+              />
+              <p className="text-lg font-serif mb-2" style={{ color: "var(--text-gold)" }}>
+                正在重连到之前的房间...
+              </p>
+              <p className="text-sm font-serif" style={{ color: "var(--text-muted)" }}>
+                请稍候，正在恢复游戏状态
+              </p>
+            </div>
+          )}
+
+          {!reconnecting && lastError && (
             <div className="mb-5 p-3 rounded-xl text-sm text-center animate-fade-in"
               style={{
                 background: "rgba(179,58,58,0.1)",
@@ -118,7 +135,7 @@ function HomePage() {
             </div>
           )}
 
-          {mode === "menu" && (
+          {!reconnecting && mode === "menu" && (
             <div className="space-y-4">
               <button
                 onClick={() => setMode("create")}
@@ -188,7 +205,7 @@ function HomePage() {
             </div>
           )}
 
-          {mode === "create" && (
+          {!reconnecting && mode === "create" && (
             <div className="space-y-4">
               <button
                 onClick={() => setMode("menu")}
@@ -228,7 +245,7 @@ function HomePage() {
             </div>
           )}
 
-          {mode === "join" && (
+          {!reconnecting && mode === "join" && (
             <div className="space-y-4">
               <button
                 onClick={() => setMode("menu")}

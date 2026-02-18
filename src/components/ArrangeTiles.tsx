@@ -379,6 +379,7 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
                     tile={tile}
                     onClick={() => handleTileClick(tile.id)}
                   />
+                  <TileLabel tile={tile} />
                   <div className="flex gap-1 mt-0.5">
                     <button
                       onClick={() => handleAssignToFront(tile.id)}

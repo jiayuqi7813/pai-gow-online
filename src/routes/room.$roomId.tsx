@@ -44,7 +44,7 @@ function RoomPage() {
 
   const isWaiting = ws.gameState.phase === "waiting";
 
-  if (isWaiting) {
+  if (isWaiting && !ws.gameOverData) {
     return <Lobby ws={ws} />;
   }
 

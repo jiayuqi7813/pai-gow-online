@@ -66,6 +66,8 @@ export function GameBoard({ ws }: { ws: WS }) {
   const [revealDone, setRevealDone] = useState(false);
   const [arrangeTimeLeft, setArrangeTimeLeft] = useState(60);
   const [nextRoundCountdown, setNextRoundCountdown] = useState(20);
+  const [gameOverCountdown, setGameOverCountdown] = useState(15);
+  const [gameOverPaused, setGameOverPaused] = useState(false);
 
   // 开牌序列完成后，显示结算弹窗
   const handleRevealDone = useCallback(() => {
@@ -87,6 +89,16 @@ export function GameBoard({ ws }: { ws: WS }) {
       setShowResult(false);
     }
   }, [revealData]);
+
+  // 进入新一局（waiting/bidding）时清除上一局残留的结算状态
+  useEffect(() => {
+    if (gameState?.phase === "waiting" || gameState?.phase === "bidding") {
+      setShowResult(false);
+      setRevealDone(false);
+      clearResult();
+      clearRevealData();
+    }
+  }, [gameState?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (gameState?.phase !== "arranging") return;
@@ -121,6 +133,24 @@ export function GameBoard({ ws }: { ws: WS }) {
 
     return () => clearInterval(timer);
   }, [gameState?.phase, showResult, gameOverData, stillRevealing]);
+
+  // gameOverData 面板 15 秒自动关闭倒计时
+  useEffect(() => {
+    if (!gameOverData) {
+      setGameOverCountdown(15);
+      return;
+    }
+    if (gameOverPaused) return;
+
+    const timer = setInterval(() => {
+      setGameOverCountdown((prev) => {
+        if (prev <= 1) return 0;
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [gameOverData, gameOverPaused]);
 
   if (!gameState || !playerId) return null;
 
@@ -162,8 +192,9 @@ export function GameBoard({ ws }: { ws: WS }) {
     clearGameOver();
     clearResult();
     clearRevealData();
-    // 服务端已重置房间到 waiting 状态，所有玩家已恢复为参战状态
-    // 不需要离开房间，刷新全状态即可
+    setShowResult(false);
+    setRevealDone(false);
+    setNextRoundCountdown(20);
   };
 
   // 倒计时归零时房主自动触发下一局
@@ -172,6 +203,13 @@ export function GameBoard({ ws }: { ws: WS }) {
       handleNextRound();
     }
   }, [nextRoundCountdown]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // gameOverData 倒计时归零时自动返回大厅
+  useEffect(() => {
+    if (gameOverCountdown === 0 && gameOverData) {
+      handleBackToLobby();
+    }
+  }, [gameOverCountdown]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 计算牌桌上每个座位在开牌阶段的显示状态
   const getSeatRevealState = (pId: string): SeatRevealState => {
@@ -442,6 +480,8 @@ export function GameBoard({ ws }: { ws: WS }) {
               border: "1px solid rgba(201,168,76,0.3)",
               boxShadow: "0 0 60px rgba(201,168,76,0.15), 0 25px 50px rgba(0,0,0,0.5)",
             }}
+            onMouseEnter={() => setGameOverPaused(true)}
+            onMouseLeave={() => setGameOverPaused(false)}
           >
             {/* 标题 */}
             <div
@@ -549,7 +589,7 @@ export function GameBoard({ ws }: { ws: WS }) {
                 onMouseEnter={(e) => e.currentTarget.style.boxShadow = "0 6px 20px rgba(201,168,76,0.5)"}
                 onMouseLeave={(e) => e.currentTarget.style.boxShadow = "0 4px 15px rgba(201,168,76,0.3)"}
               >
-                返回大厅
+                返回大厅 ({gameOverCountdown}s){gameOverPaused ? " · 已暂停" : ""}
               </button>
             </div>
           </div>

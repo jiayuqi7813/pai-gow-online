@@ -9,6 +9,7 @@ interface GameOverData {
 
 interface GameStore {
   connected: boolean;
+  reconnecting: boolean;
   roomId: string | null;
   playerId: string | null;
   gameState: RoomState | null;
@@ -23,6 +24,7 @@ interface GameStore {
 
 const INITIAL_STATE: GameStore = {
   connected: false,
+  reconnecting: false,
   roomId: null,
   playerId: null,
   gameState: null,
@@ -60,20 +62,20 @@ function sendRaw(msg: ClientMessage) {
 function handleServerMessage(msg: ServerMessage) {
   switch (msg.type) {
     case "room_created":
-      try { sessionStorage.setItem("pai_gow_room", msg.roomId); } catch {}
-      try { sessionStorage.setItem("pai_gow_player", msg.playerId); } catch {}
+      try { localStorage.setItem("pai_gow_room", msg.roomId); } catch {}
+      try { localStorage.setItem("pai_gow_player", msg.playerId); } catch {}
       updateState({ roomId: msg.roomId, playerId: msg.playerId });
       break;
 
     case "room_joined":
-      try { sessionStorage.setItem("pai_gow_room", msg.roomId); } catch {}
-      try { sessionStorage.setItem("pai_gow_player", msg.playerId); } catch {}
+      try { localStorage.setItem("pai_gow_room", msg.roomId); } catch {}
+      try { localStorage.setItem("pai_gow_player", msg.playerId); } catch {}
       updateState({ roomId: msg.roomId, playerId: msg.playerId, isSpectator: false });
       break;
 
     case "room_spectating":
-      try { sessionStorage.setItem("pai_gow_room", msg.roomId); } catch {}
-      try { sessionStorage.setItem("pai_gow_player", msg.playerId); } catch {}
+      try { localStorage.setItem("pai_gow_room", msg.roomId); } catch {}
+      try { localStorage.setItem("pai_gow_player", msg.playerId); } catch {}
       updateState({ roomId: msg.roomId, playerId: msg.playerId, isSpectator: true });
       break;
 
@@ -85,6 +87,7 @@ function handleServerMessage(msg: ServerMessage) {
         myTiles: msg.yourTiles,
         roomId: msg.state.roomId,
         isSpectator: myPlayer?.isSpectator ?? globalState.isSpectator,
+        reconnecting: false,
       });
       break;
     }
@@ -94,8 +97,14 @@ function handleServerMessage(msg: ServerMessage) {
       break;
 
     case "error":
-      updateState({ lastError: msg.message });
-      setTimeout(() => updateState({ lastError: null }), 5000);
+      if (globalState.reconnecting) {
+        try { localStorage.removeItem("pai_gow_room"); } catch {}
+        try { localStorage.removeItem("pai_gow_player"); } catch {}
+        updateState({ reconnecting: false, lastError: null });
+      } else {
+        updateState({ lastError: msg.message });
+        setTimeout(() => updateState({ lastError: null }), 5000);
+      }
       break;
 
     case "arrange_invalid":
@@ -232,16 +241,16 @@ function doConnect() {
 
     ws.onopen = () => {
       updateState({ connected: true, lastError: null });
-      // 断线重连 - 尝试恢复房间
       try {
-        const savedRoom = sessionStorage.getItem("pai_gow_room");
-        const savedPlayer = sessionStorage.getItem("pai_gow_player");
+        const savedRoom = localStorage.getItem("pai_gow_room");
+        const savedPlayer = localStorage.getItem("pai_gow_player");
         if (savedRoom && savedPlayer) {
           ws.send(JSON.stringify({
             type: "rejoin_room",
             roomId: savedRoom,
             playerId: savedPlayer,
           }));
+          updateState({ reconnecting: true });
         }
       } catch {}
     };
@@ -341,9 +350,10 @@ export function useWebSocket() {
 
   const leaveRoom = useCallback(() => {
     sendRaw({ type: "leave_room" });
-    try { sessionStorage.removeItem("pai_gow_room"); } catch {}
-    try { sessionStorage.removeItem("pai_gow_player"); } catch {}
+    try { localStorage.removeItem("pai_gow_room"); } catch {}
+    try { localStorage.removeItem("pai_gow_player"); } catch {}
     updateState({
+      reconnecting: false,
       roomId: null,
       playerId: null,
       gameState: null,
