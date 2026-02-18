@@ -1,16 +1,22 @@
 import { useState } from "react";
+import type { Player } from "~/game/types";
 
 interface BetPanelProps {
   isBanker: boolean;
   hasBet: boolean;
   myChips: number;
   onBet: (amount: number) => void;
+  players?: Player[];
+  myPlayerId?: string;
+  bankerId?: string | null;
 }
 
 const BET_OPTIONS = [50, 100, 200, 500, 1000, 2000];
 
-export function BetPanel({ isBanker, hasBet, myChips, onBet }: BetPanelProps) {
+export function BetPanel({ isBanker, hasBet, myChips, onBet, players, myPlayerId, bankerId }: BetPanelProps) {
   const [customBet, setCustomBet] = useState(100);
+
+  const nonBankerPlayers = players?.filter((p) => !p.isSpectator && p.id !== bankerId && p.connected);
 
   if (isBanker) {
     return (
@@ -18,12 +24,14 @@ export function BetPanel({ isBanker, hasBet, myChips, onBet }: BetPanelProps) {
         <h3 className="text-lg font-bold font-display mb-2" style={{ color: "var(--text-gold)" }}>
           下注阶段
         </h3>
-        <div className="text-center py-4">
-          <div className="text-lg mb-2 font-serif animate-pulse-slow" style={{ color: "var(--text-gold)" }}>
+        <div className="text-center py-2">
+          <div className="text-lg mb-1 font-serif animate-pulse-slow" style={{ color: "var(--text-gold)" }}>
             你是庄家
           </div>
-          <p className="text-sm font-serif" style={{ color: "var(--text-muted)" }}>等待闲家下注...</p>
         </div>
+        {nonBankerPlayers && myPlayerId && (
+          <BetWaitingStatus players={nonBankerPlayers} myPlayerId={myPlayerId} />
+        )}
       </div>
     );
   }
@@ -34,12 +42,14 @@ export function BetPanel({ isBanker, hasBet, myChips, onBet }: BetPanelProps) {
         <h3 className="text-lg font-bold font-display mb-2" style={{ color: "var(--text-gold)" }}>
           下注阶段
         </h3>
-        <div className="text-center py-4">
-          <div className="text-lg mb-2 font-serif" style={{ color: "var(--accent-jade)" }}>
+        <div className="text-center py-2">
+          <div className="text-lg mb-1 font-serif" style={{ color: "var(--accent-jade)" }}>
             已下注
           </div>
-          <p className="text-sm font-serif" style={{ color: "var(--text-muted)" }}>等待其他玩家...</p>
         </div>
+        {nonBankerPlayers && myPlayerId && (
+          <BetWaitingStatus players={nonBankerPlayers} myPlayerId={myPlayerId} />
+        )}
       </div>
     );
   }
@@ -103,6 +113,54 @@ export function BetPanel({ isBanker, hasBet, myChips, onBet }: BetPanelProps) {
         >
           下注
         </button>
+      </div>
+    </div>
+  );
+}
+
+function BetWaitingStatus({ players, myPlayerId }: { players: Player[]; myPlayerId: string }) {
+  const done = players.filter((p) => p.betAmount > 0).length;
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-serif" style={{ color: "var(--text-muted)" }}>闲家下注进度</span>
+        <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>{done}/{players.length}</span>
+      </div>
+      <div className="space-y-1">
+        {players.map((p) => {
+          const hasBet = p.betAmount > 0;
+          const isMe = p.id === myPlayerId;
+          return (
+            <div
+              key={p.id}
+              className="flex items-center justify-between px-2.5 py-1.5 rounded-lg"
+              style={{ background: isMe ? "rgba(201,168,76,0.05)" : "rgba(255,255,255,0.01)" }}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  style={{
+                    background: hasBet ? "var(--accent-jade)" : "rgba(201,168,76,0.5)",
+                    boxShadow: hasBet ? "0 0 4px rgba(91,158,122,0.5)" : "none",
+                  }}
+                />
+                <span className="text-xs font-serif" style={{ color: isMe ? "var(--text-gold)" : "var(--text-primary)" }}>
+                  {p.name}{isMe ? " (你)" : ""}
+                </span>
+              </div>
+              <span
+                className="text-[10px] font-serif px-1.5 py-0.5 rounded"
+                style={{
+                  background: hasBet ? "rgba(91,158,122,0.1)" : "rgba(201,168,76,0.08)",
+                  color: hasBet ? "var(--accent-jade)" : "var(--text-muted)",
+                  border: hasBet ? "1px solid rgba(91,158,122,0.2)" : "1px solid rgba(201,168,76,0.12)",
+                }}
+              >
+                {hasBet ? "已下注" : "等待中"}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

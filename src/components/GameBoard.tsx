@@ -5,7 +5,6 @@ import type { ServerMessage } from "~/game/types";
 import { PlayerSeat } from "./PlayerSeat";
 import type { SeatRevealState } from "./PlayerSeat";
 import { ArrangeTiles } from "./ArrangeTiles";
-import { BidBanker } from "./BidBanker";
 import { BetPanel } from "./BetPanel";
 import { ResultModal } from "./ResultModal";
 import { RevealSequence } from "./RevealSequence";
@@ -50,8 +49,6 @@ export function GameBoard({ ws }: { ws: WS }) {
     gameOverData,
     isSpectator,
     startGame,
-    bidBanker,
-    skipBid,
     placeBet,
     arrangeTiles,
     leaveRoom,
@@ -90,9 +87,9 @@ export function GameBoard({ ws }: { ws: WS }) {
     }
   }, [revealData]);
 
-  // 进入新一局（waiting/bidding）时清除上一局残留的结算状态
+  // 进入新一局（waiting/betting）时清除上一局残留的结算状态
   useEffect(() => {
-    if (gameState?.phase === "waiting" || gameState?.phase === "bidding") {
+    if (gameState?.phase === "waiting" || gameState?.phase === "betting") {
       setShowResult(false);
       setRevealDone(false);
       clearResult();
@@ -163,7 +160,6 @@ export function GameBoard({ ws }: { ws: WS }) {
   const positions = getSeatPositions(seatPlayers.length, Math.max(0, selfSeatIndex));
   const isHost = me.isHost;
   const isBanker = gameState.bankerId === playerId;
-  const isMyBidTurn = gameState.currentBidderId === playerId;
 
   // 在 revealing/settlement 阶段且有 revealData 时，使用开牌序列
   const isRevealing = revealData && !revealDone;
@@ -171,7 +167,6 @@ export function GameBoard({ ws }: { ws: WS }) {
 
   const phaseLabels: Record<string, string> = {
     waiting: "等待中",
-    bidding: "抢庄阶段",
     betting: "下注阶段",
     dealing: "发牌中",
     arranging: "搭配阶段",
@@ -345,7 +340,6 @@ export function GameBoard({ ws }: { ws: WS }) {
               player={player}
               isSelf={player.id === playerId}
               isBanker={player.id === gameState.bankerId}
-              isCurrentBidder={player.id === gameState.currentBidderId}
               showTiles={showTilesOnTable && !isRevealing}
               position={positions[idx]}
               revealState={isRevealing ? getSeatRevealState(player.id) : (revealDone ? "settled" : null)}
@@ -381,17 +375,6 @@ export function GameBoard({ ws }: { ws: WS }) {
         {/* 参战玩家操作区 */}
         {!isSpectator && (
           <>
-            {/* 抢庄阶段 */}
-            {!isRevealing && gameState.phase === "bidding" && (
-              <BidBanker
-                isMyTurn={isMyBidTurn}
-                currentHighest={gameState.highestBid}
-                myChips={me.chips}
-                onBid={bidBanker}
-                onSkip={skipBid}
-              />
-            )}
-
             {/* 下注阶段 */}
             {!isRevealing && gameState.phase === "betting" && (
               <BetPanel
@@ -399,6 +382,9 @@ export function GameBoard({ ws }: { ws: WS }) {
                 hasBet={me.betAmount > 0}
                 myChips={me.chips}
                 onBet={placeBet}
+                players={gameState.players}
+                myPlayerId={playerId}
+                bankerId={gameState.bankerId}
               />
             )}
 
@@ -412,11 +398,17 @@ export function GameBoard({ ws }: { ws: WS }) {
             )}
 
             {!isRevealing && gameState.phase === "arranging" && me.arrangement && (
-              <div className="panel-glass p-5 text-center animate-slide-up">
-                <div className="text-lg mb-2 font-serif" style={{ color: "var(--accent-jade)" }}>
+              <div className="panel-glass p-5 animate-slide-up">
+                <div className="text-lg mb-2 font-serif text-center" style={{ color: "var(--accent-jade)" }}>
                   已完成搭配
                 </div>
-                <p className="text-sm font-serif" style={{ color: "var(--text-muted)" }}>等待其他玩家...</p>
+                <WaitingPlayerStatus
+                  players={seatPlayers}
+                  myPlayerId={playerId}
+                  getStatus={(p) => p.arrangement ? "done" : "waiting"}
+                  doneLabel="已配牌"
+                  waitingLabel="配牌中"
+                />
               </div>
             )}
           </>
@@ -595,6 +587,74 @@ export function GameBoard({ ws }: { ws: WS }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function WaitingPlayerStatus({
+  players,
+  myPlayerId,
+  getStatus,
+  doneLabel,
+  waitingLabel,
+}: {
+  players: import("~/game/types").Player[];
+  myPlayerId: string;
+  getStatus: (p: import("~/game/types").Player) => "done" | "waiting";
+  doneLabel: string;
+  waitingLabel: string;
+}) {
+  const done = players.filter((p) => getStatus(p) === "done").length;
+  const total = players.length;
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-serif" style={{ color: "var(--text-muted)" }}>
+          玩家进度
+        </span>
+        <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+          {done}/{total}
+        </span>
+      </div>
+      <div className="space-y-1">
+        {players.map((p) => {
+          const isDone = getStatus(p) === "done";
+          const isMe = p.id === myPlayerId;
+          return (
+            <div
+              key={p.id}
+              className="flex items-center justify-between px-2.5 py-1.5 rounded-lg"
+              style={{
+                background: isMe ? "rgba(201,168,76,0.05)" : "rgba(255,255,255,0.01)",
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  style={{
+                    background: isDone ? "var(--accent-jade)" : "rgba(201,168,76,0.5)",
+                    boxShadow: isDone ? "0 0 4px rgba(91,158,122,0.5)" : "none",
+                  }}
+                />
+                <span className="text-xs font-serif" style={{ color: isMe ? "var(--text-gold)" : "var(--text-primary)" }}>
+                  {p.name}{isMe ? " (你)" : ""}
+                </span>
+              </div>
+              <span
+                className="text-[10px] font-serif px-1.5 py-0.5 rounded"
+                style={{
+                  background: isDone ? "rgba(91,158,122,0.1)" : "rgba(201,168,76,0.08)",
+                  color: isDone ? "var(--accent-jade)" : "var(--text-muted)",
+                  border: isDone ? "1px solid rgba(91,158,122,0.2)" : "1px solid rgba(201,168,76,0.12)",
+                }}
+              >
+                {isDone ? doneLabel : waitingLabel}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -82,17 +82,8 @@ function handleAutoEvent(roomId: string) {
 function processEngineEvents(roomId: string, events: EngineEvent[]) {
   for (const event of events) {
     switch (event.type) {
-      case "bid_phase":
-        broadcastToRoom(roomId, { type: "bid_phase", bidderId: event.bidderId, bidOrder: event.bidOrder });
-        break;
-      case "player_bid":
-        broadcastToRoom(roomId, { type: "player_bid", playerId: event.playerId, amount: event.amount });
-        break;
-      case "player_skip_bid":
-        broadcastToRoom(roomId, { type: "player_skip_bid", playerId: event.playerId });
-        break;
-      case "banker_decided":
-        broadcastToRoom(roomId, { type: "banker_decided", bankerId: event.bankerId, bidAmount: event.bidAmount });
+      case "banker_assigned":
+        broadcastToRoom(roomId, { type: "banker_assigned", bankerId: event.bankerId });
         break;
       case "bet_phase":
         broadcastToRoom(roomId, { type: "bet_phase" });
@@ -254,32 +245,6 @@ function handleMessage(ws: WSWebSocket, data: string) {
       }
       broadcastToRoom(roomId, { type: "game_started" });
       for (const p of room.players) sendFullState(p.id, roomId);
-      break;
-    }
-
-    case "bid_banker": {
-      const playerId = socketPlayerMap.get(ws);
-      if (!playerId) return;
-      const roomId = playerRoomCache.get(playerId);
-      if (!roomId) return;
-      const engine = getEngine(roomId);
-      if (!engine) return;
-      engine.bidBanker(playerId, msg.amount);
-      processEngineEvents(roomId, engine.getEvents());
-      for (const p of getRoom(roomId)!.players) sendFullState(p.id, roomId);
-      break;
-    }
-
-    case "skip_bid": {
-      const playerId = socketPlayerMap.get(ws);
-      if (!playerId) return;
-      const roomId = playerRoomCache.get(playerId);
-      if (!roomId) return;
-      const engine = getEngine(roomId);
-      if (!engine) return;
-      engine.skipBid(playerId);
-      processEngineEvents(roomId, engine.getEvents());
-      for (const p of getRoom(roomId)!.players) sendFullState(p.id, roomId);
       break;
     }
 

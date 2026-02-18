@@ -65,7 +65,6 @@ export interface RoundPlayerResult {
 /** 游戏阶段 */
 export type GamePhase =
   | "waiting"
-  | "bidding"
   | "betting"
   | "dealing"
   | "arranging"
@@ -101,7 +100,6 @@ export interface Player {
   tiles: Tile[];
   arrangement: Arrangement | null;
   betAmount: number;
-  bidAmount: number;
   connected: boolean;
   /** 是否为观战者 */
   isSpectator: boolean;
@@ -117,11 +115,6 @@ export interface RoomState {
   phase: GamePhase;
   players: Player[];
   bankerId: string | null;
-  currentBidderId: string | null;
-  bidOrder: string[];
-  bidIndex: number;
-  highestBid: number;
-  highestBidderId: string | null;
   roundNumber: number;
   bankerArrangement: Arrangement | null;
   results: RoundPlayerResult[];
@@ -138,8 +131,6 @@ export type ClientMessage =
   | { type: "toggle_spectator" }
   | { type: "toggle_ready" }
   | { type: "start_game" }
-  | { type: "bid_banker"; amount: number }
-  | { type: "skip_bid" }
   | { type: "place_bet"; amount: number }
   | { type: "arrange_tiles"; front: [number, number]; back: [number, number] }
   | { type: "leave_room" }
@@ -155,10 +146,7 @@ export type ServerMessage =
   | { type: "spectator_to_player"; playerId: string; playerName: string }
   | { type: "join_playing_queued"; playerId: string }
   | { type: "game_started" }
-  | { type: "bid_phase"; bidderId: string; bidOrder: string[] }
-  | { type: "player_bid"; playerId: string; amount: number }
-  | { type: "player_skip_bid"; playerId: string }
-  | { type: "banker_decided"; bankerId: string; bidAmount: number }
+  | { type: "banker_assigned"; bankerId: string }
   | { type: "bet_phase" }
   | { type: "player_bet"; playerId: string; amount: number }
   | { type: "tiles_dealt"; tiles: Tile[] }

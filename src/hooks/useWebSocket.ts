@@ -147,13 +147,22 @@ function handleServerMessage(msg: ServerMessage) {
           tiles: [],
           arrangement: null,
           betAmount: 0,
-          bidAmount: 0,
           connected: true,
           isSpectator: msg.player.isSpectator,
           stats: { wins: 0, losses: 0, draws: 0, totalRounds: 0 },
         };
         updateState({
           gameState: { ...gs, players: [...gs.players, newPlayer] },
+        });
+      }
+      break;
+    }
+
+    case "banker_assigned": {
+      const gsBA = globalState.gameState;
+      if (gsBA) {
+        updateState({
+          gameState: { ...gsBA, bankerId: msg.bankerId },
         });
       }
       break;
@@ -331,14 +340,6 @@ export function useWebSocket() {
     sendRaw({ type: "start_game" });
   }, []);
 
-  const bidBanker = useCallback((amount: number) => {
-    sendRaw({ type: "bid_banker", amount });
-  }, []);
-
-  const skipBid = useCallback(() => {
-    sendRaw({ type: "skip_bid" });
-  }, []);
-
   const placeBet = useCallback((amount: number) => {
     sendRaw({ type: "place_bet", amount });
   }, []);
@@ -407,8 +408,6 @@ export function useWebSocket() {
     toggleSpectator,
     toggleReady,
     startGame,
-    bidBanker,
-    skipBid,
     placeBet,
     arrangeTiles,
     leaveRoom,

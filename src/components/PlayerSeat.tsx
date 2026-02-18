@@ -15,7 +15,6 @@ interface PlayerSeatProps {
   player: Player;
   isSelf: boolean;
   isBanker: boolean;
-  isCurrentBidder: boolean;
   showTiles: boolean;
   position: { x: string; y: string; rotation: number };
   revealState?: SeatRevealState;
@@ -26,7 +25,6 @@ export function PlayerSeat({
   player,
   isSelf,
   isBanker,
-  isCurrentBidder,
   showTiles,
   position,
   revealState,
@@ -42,7 +40,7 @@ export function PlayerSeat({
     <div
       className={`player-seat absolute flex flex-col items-center gap-1 ${
         isBanker ? "banker" : ""
-      } ${isCurrentBidder || isRevealActive ? "active" : ""}`}
+      } ${isRevealActive ? "active" : ""}`}
       style={{
         left: position.x,
         top: position.y,
@@ -83,15 +81,6 @@ export function PlayerSeat({
           >
             庄
           </div>
-        )}
-        {isCurrentBidder && !isInReveal && (
-          <div
-            className="absolute -top-2 -left-2 w-3 h-3 rounded-full animate-pulse-slow"
-            style={{
-              background: "var(--gold)",
-              boxShadow: "0 0 10px rgba(201,168,76,0.6)",
-            }}
-          />
         )}
         <div className="text-xs font-semibold truncate max-w-[70px] font-serif" style={{ color: "var(--text-primary)" }}>
           {player.name}
