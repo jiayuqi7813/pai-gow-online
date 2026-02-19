@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { useWebSocket } from "~/hooks/useWebSocket";
 import type { ServerMessage } from "~/game/types";
@@ -10,6 +10,8 @@ import { ResultModal } from "./ResultModal";
 import { RevealSequence } from "./RevealSequence";
 import type { RevealStep } from "./RevealSequence";
 import { PlayerListPanel } from "./PlayerListPanel";
+import { AudioControls } from "./AudioControls";
+import { useAudio } from "~/hooks/useAudio";
 
 type WS = ReturnType<typeof useWebSocket>;
 
@@ -48,7 +50,7 @@ export function GameBoard({ ws }: { ws: WS }) {
     revealData,
     gameOverData,
     isSpectator,
-    startGame,
+    voteNextRound,
     placeBet,
     arrangeTiles,
     leaveRoom,
@@ -59,12 +61,55 @@ export function GameBoard({ ws }: { ws: WS }) {
     clearGameOver,
   } = ws;
 
+  const { play: playSound } = useAudio();
+
   const [showResult, setShowResult] = useState(false);
   const [revealDone, setRevealDone] = useState(false);
   const [arrangeTimeLeft, setArrangeTimeLeft] = useState(60);
   const [nextRoundCountdown, setNextRoundCountdown] = useState(20);
   const [gameOverCountdown, setGameOverCountdown] = useState(15);
   const [gameOverPaused, setGameOverPaused] = useState(false);
+
+  // 阶段切换音效
+  const prevPhaseRef = useRef(gameState?.phase);
+  useEffect(() => {
+    const phase = gameState?.phase;
+    if (!phase || phase === prevPhaseRef.current) return;
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+
+    switch (phase) {
+      case "betting":
+        if (prev === "waiting") playSound("gameStart");
+        else playSound("notify");
+        break;
+      case "dealing":
+        playSound("cardShuffle");
+        break;
+      case "arranging":
+        playSound("cardFan");
+        break;
+      case "revealing":
+        playSound("reveal");
+        break;
+      case "settlement":
+        // 结算时根据自己盈亏播放不同音效，延迟以避免与 reveal 音效重叠
+        break;
+    }
+  }, [gameState?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 结算结果音效
+  useEffect(() => {
+    if (!lastResult || lastResult.type !== "round_result") return;
+    const myResult = lastResult.results.find((r) => r.playerId === playerId);
+    const isMeBanker = lastResult.bankerResult.playerId === playerId;
+    const payout = isMeBanker ? lastResult.bankerResult.totalPayout : (myResult?.totalPayout ?? 0);
+    setTimeout(() => {
+      if (payout > 0) playSound("win");
+      else if (payout < 0) playSound("lose");
+      else playSound("notify");
+    }, 300);
+  }, [lastResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 开牌序列完成后，显示结算弹窗
   const handleRevealDone = useCallback(() => {
@@ -102,11 +147,15 @@ export function GameBoard({ ws }: { ws: WS }) {
 
     setArrangeTimeLeft(60);
     const timer = setInterval(() => {
-      setArrangeTimeLeft((t) => Math.max(0, t - 1));
+      setArrangeTimeLeft((t) => {
+        const next = Math.max(0, t - 1);
+        if (next > 0 && next <= 5) playSound("countdown");
+        return next;
+      });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameState?.phase]);
+  }, [gameState?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 20 秒自动下一局倒计时（结算阶段 + 开牌已完成 + ResultModal 已关闭 + 非游戏结束）
   const stillRevealing = !!(revealData && !revealDone);
@@ -175,12 +224,9 @@ export function GameBoard({ ws }: { ws: WS }) {
     settlement: "结算",
   };
 
-  const handleNextRound = () => {
-    setShowResult(false);
-    setRevealDone(false);
-    clearResult();
-    clearRevealData();
-    startGame();
+  const handleVoteNextRound = () => {
+    playSound("click");
+    voteNextRound();
   };
 
   const handleBackToLobby = () => {
@@ -192,10 +238,11 @@ export function GameBoard({ ws }: { ws: WS }) {
     setNextRoundCountdown(20);
   };
 
-  // 倒计时归零时房主自动触发下一局
+  // 倒计时归零时自动投票下一局（每个在席玩家各自自动投票）
+  const hasVoted = gameState.nextRoundVotes.includes(playerId);
   useEffect(() => {
-    if (nextRoundCountdown === 0 && isHost && gameState.phase === "settlement" && !gameOverData) {
-      handleNextRound();
+    if (nextRoundCountdown === 0 && !isSpectator && gameState.phase === "settlement" && !gameOverData && !hasVoted) {
+      handleVoteNextRound();
     }
   }, [nextRoundCountdown]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -280,6 +327,7 @@ export function GameBoard({ ws }: { ws: WS }) {
               观战中
             </span>
           )}
+          <AudioControls />
           <button
             onClick={() => { leaveRoom(); navigate({ to: "/" }); }}
             className="text-xs transition-colors font-serif"
@@ -424,16 +472,22 @@ export function GameBoard({ ws }: { ws: WS }) {
               >
                 查看结果
               </button>
-              {isHost && (
-                <button onClick={handleNextRound} className="btn btn-primary flex-1 py-3 rounded-xl font-serif">
-                  下一局 ({nextRoundCountdown}s)
+              {!isSpectator && (
+                <button
+                  onClick={handleVoteNextRound}
+                  disabled={hasVoted}
+                  className="btn btn-primary flex-1 py-3 rounded-xl font-serif"
+                  style={hasVoted ? { opacity: 0.6 } : undefined}
+                >
+                  {hasVoted ? "已确认" : "下一局"} ({gameState.nextRoundVotes.length}/{gameState.nextRoundVoteTotal})
+                  <span className="text-xs ml-1 opacity-70">{nextRoundCountdown}s</span>
                 </button>
               )}
             </div>
-            {!isHost && (
+            {isSpectator && (
               <div className="text-center">
                 <span className="text-xs font-serif" style={{ color: "var(--text-muted)" }}>
-                  等待房主开始下一局 ({nextRoundCountdown}s)
+                  等待玩家确认下一局 ({gameState.nextRoundVotes.length}/{gameState.nextRoundVoteTotal}) {nextRoundCountdown}s
                 </span>
               </div>
             )}
@@ -447,8 +501,11 @@ export function GameBoard({ ws }: { ws: WS }) {
           result={lastResult as Extract<ServerMessage, { type: "round_result" }>}
           myPlayerId={playerId}
           onClose={() => setShowResult(false)}
-          onNextRound={handleNextRound}
-          isHost={isHost}
+          onVoteNextRound={handleVoteNextRound}
+          isSpectator={isSpectator}
+          hasVoted={hasVoted}
+          votedCount={gameState.nextRoundVotes.length}
+          voteTotal={gameState.nextRoundVoteTotal}
           players={gameState.players}
         />
       )}

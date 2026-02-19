@@ -120,6 +120,10 @@ export interface RoomState {
   results: RoundPlayerResult[];
   maxPlayers: number;
   minPlayersToStart: number;
+  /** 投票下一局：已投票的玩家ID集合 */
+  nextRoundVotes: string[];
+  /** 投票下一局：需要投票的总人数 */
+  nextRoundVoteTotal: number;
 }
 
 /** 客户端消息 */
@@ -131,10 +135,12 @@ export type ClientMessage =
   | { type: "toggle_spectator" }
   | { type: "toggle_ready" }
   | { type: "start_game" }
+  | { type: "vote_next_round" }
   | { type: "place_bet"; amount: number }
   | { type: "arrange_tiles"; front: [number, number]; back: [number, number] }
   | { type: "leave_room" }
-  | { type: "rejoin_room"; roomId: string; playerId: string };
+  | { type: "rejoin_room"; roomId: string; playerId: string }
+  | { type: "ping" };
 
 /** 服务端消息 */
 export type ServerMessage =
@@ -160,5 +166,7 @@ export type ServerMessage =
   | { type: "game_over"; reason: string; rankings: Array<{ name: string; chips: number; stats: PlayerStats }> ; totalRounds: number }
   | { type: "player_ready"; playerId: string; isReady: boolean }
   | { type: "player_toggle_spectator"; playerId: string; isSpectator: boolean }
+  | { type: "next_round_vote"; playerId: string; votedCount: number; totalCount: number }
   | { type: "error"; message: string }
-  | { type: "chat"; playerId: string; playerName: string; text: string };
+  | { type: "chat"; playerId: string; playerName: string; text: string }
+  | { type: "pong" };

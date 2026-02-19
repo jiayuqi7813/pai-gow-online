@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { useWebSocket } from "~/hooks/useWebSocket";
 import { ChipDisplay } from "./ChipDisplay";
+import { audioManager } from "~/audio/AudioManager";
 
 type WS = ReturnType<typeof useWebSocket>;
 
@@ -212,14 +213,14 @@ export function Lobby({ ws }: { ws: WS }) {
             <div className="flex gap-3">
               {!isSpectator && (
                 <button
-                  onClick={toggleReady}
+                  onClick={() => { audioManager.play("click"); toggleReady(); }}
                   className={`flex-1 py-3 rounded-xl font-serif text-base font-bold transition-all ${me.isReady ? "btn btn-secondary" : "btn btn-primary"}`}
                 >
                   {me.isReady ? "取消准备" : "准备"}
                 </button>
               )}
               <button
-                onClick={toggleSpectator}
+                onClick={() => { audioManager.play("click"); toggleSpectator(); }}
                 className="btn btn-secondary flex-1 py-3 rounded-xl font-serif"
               >
                 {isSpectator ? "加入参战" : "切换观战"}
@@ -236,7 +237,7 @@ export function Lobby({ ws }: { ws: WS }) {
             </button>
             {isHost && (
               <button
-                onClick={startGame}
+                onClick={() => { audioManager.play("gameStart"); startGame(); }}
                 disabled={!canStart}
                 className="btn btn-primary flex-1 py-3 rounded-xl text-lg font-serif"
               >

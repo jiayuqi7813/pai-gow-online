@@ -43,6 +43,12 @@ let globalState: GameStore = INITIAL_STATE;
 const listeners = new Set<() => void>();
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let wsInitialized = false;
+let pongTimer: ReturnType<typeof setTimeout> | null = null;
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+let waitingPong = false;
+
+const HEARTBEAT_INTERVAL = 15_000; // 每 15 秒发一次 ping
+const PONG_TIMEOUT = 5_000;        // 5 秒内没收到 pong 判定死连接
 
 function notifyAll() {
   listeners.forEach((fn) => fn());
@@ -168,6 +174,23 @@ function handleServerMessage(msg: ServerMessage) {
       break;
     }
 
+    case "next_round_vote": {
+      const gsVote = globalState.gameState;
+      if (gsVote) {
+        const newVotes = gsVote.nextRoundVotes.includes(msg.playerId)
+          ? gsVote.nextRoundVotes
+          : [...gsVote.nextRoundVotes, msg.playerId];
+        updateState({
+          gameState: {
+            ...gsVote,
+            nextRoundVotes: newVotes,
+            nextRoundVoteTotal: msg.totalCount,
+          },
+        });
+      }
+      break;
+    }
+
     case "spectator_to_player": {
       const gs3 = globalState.gameState;
       if (gs3) {
@@ -243,21 +266,82 @@ function handleServerMessage(msg: ServerMessage) {
       break;
     }
 
+    case "pong":
+      waitingPong = false;
+      if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
+      break;
+
     default:
       break;
   }
+}
+
+function sendPing() {
+  if (!globalWs || globalWs.readyState !== WebSocket.OPEN) return;
+  if (waitingPong) return;
+  waitingPong = true;
+  try {
+    globalWs.send(JSON.stringify({ type: "ping" }));
+  } catch {
+    waitingPong = false;
+    forceReconnect();
+    return;
+  }
+  pongTimer = setTimeout(() => {
+    waitingPong = false;
+    forceReconnect();
+  }, PONG_TIMEOUT);
+}
+
+function forceReconnect() {
+  stopHeartbeat();
+  if (globalWs) {
+    try { globalWs.close(); } catch {}
+    globalWs = null;
+  }
+  doConnect();
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatInterval = setInterval(sendPing, HEARTBEAT_INTERVAL);
+}
+
+function stopHeartbeat() {
+  if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+  if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
+  waitingPong = false;
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState !== "visible") return;
+
+  if (!globalWs || globalWs.readyState !== WebSocket.OPEN) {
+    globalWs = null;
+    doConnect();
+    return;
+  }
+
+  // 切回前台时立刻做一次 ping 探测
+  sendPing();
 }
 
 function connectWs() {
   if (typeof window === "undefined") return;
   if (wsInitialized) return;
   wsInitialized = true;
+  document.addEventListener("visibilitychange", handleVisibilityChange);
   doConnect();
 }
 
 function doConnect() {
   if (typeof window === "undefined") return;
-  if (globalWs?.readyState === WebSocket.OPEN || globalWs?.readyState === WebSocket.CONNECTING) return;
+  if (globalWs?.readyState === WebSocket.CONNECTING) return;
+  if (globalWs?.readyState === WebSocket.OPEN) return;
+  if (globalWs) {
+    try { globalWs.close(); } catch {}
+    globalWs = null;
+  }
 
   try {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -265,6 +349,7 @@ function doConnect() {
 
     ws.onopen = () => {
       updateState({ connected: true, lastError: null });
+      startHeartbeat();
       try {
         const savedRoom = localStorage.getItem("pai_gow_room");
         const savedPlayer = localStorage.getItem("pai_gow_player");
@@ -287,6 +372,7 @@ function doConnect() {
     };
 
     ws.onclose = () => {
+      stopHeartbeat();
       updateState({ connected: false });
       globalWs = null;
       if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -338,6 +424,10 @@ export function useWebSocket() {
 
   const startGame = useCallback(() => {
     sendRaw({ type: "start_game" });
+  }, []);
+
+  const voteNextRound = useCallback(() => {
+    sendRaw({ type: "vote_next_round" });
   }, []);
 
   const placeBet = useCallback((amount: number) => {
@@ -408,6 +498,7 @@ export function useWebSocket() {
     toggleSpectator,
     toggleReady,
     startGame,
+    voteNextRound,
     placeBet,
     arrangeTiles,
     leaveRoom,

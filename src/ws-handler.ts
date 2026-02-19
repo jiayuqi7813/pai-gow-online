@@ -23,12 +23,33 @@ const peerSockets = new Map<string, WSWebSocket>();
 const socketPlayerMap = new Map<WSWebSocket, string>();
 /** playerId -> roomId */
 const playerRoomCache = new Map<string, string>();
+/** ws -> 是否存活标记（服务端心跳用） */
+const wsAlive = new Map<WSWebSocket, boolean>();
+/** ws -> 心跳定时器 */
+const wsPingTimers = new Map<WSWebSocket, ReturnType<typeof setInterval>>();
+
+const WS_PING_INTERVAL = 20_000;
 
 /** 掉线计时器：30s 操作超时 + 60s 重连窗口 */
 const disconnectTimers = new Map<string, {
   actionTimer: ReturnType<typeof setTimeout> | null;
   reconnectTimer: ReturnType<typeof setTimeout>;
 }>();
+
+/** 绑定 playerId <-> ws，清理之前可能残留的旧映射 */
+function bindSocket(playerId: string, ws: WSWebSocket) {
+  const oldWs = peerSockets.get(playerId);
+  if (oldWs && oldWs !== ws) {
+    socketPlayerMap.delete(oldWs);
+    try { oldWs.close(); } catch {}
+  }
+  const oldPlayerId = socketPlayerMap.get(ws);
+  if (oldPlayerId && oldPlayerId !== playerId) {
+    peerSockets.delete(oldPlayerId);
+  }
+  peerSockets.set(playerId, ws);
+  socketPlayerMap.set(ws, playerId);
+}
 
 function clearDisconnectTimers(playerId: string) {
   const timers = disconnectTimers.get(playerId);
@@ -106,6 +127,9 @@ function processEngineEvents(roomId: string, events: EngineEvent[]) {
       case "reveal_start":
         broadcastToRoom(roomId, { type: "reveal_start", revealData: event.revealData });
         break;
+      case "next_round_vote":
+        broadcastToRoom(roomId, { type: "next_round_vote", playerId: event.playerId, votedCount: event.votedCount, totalCount: event.totalCount });
+        break;
       case "round_result":
         broadcastToRoom(roomId, { type: "round_result", results: event.results, bankerResult: event.bankerResult });
         break;
@@ -148,8 +172,7 @@ function handleMessage(ws: WSWebSocket, data: string) {
   switch (msg.type) {
     case "create_room": {
       const { room, playerId } = createRoom(msg.playerName);
-      peerSockets.set(playerId, ws);
-      socketPlayerMap.set(ws, playerId);
+      bindSocket(playerId, ws);
       playerRoomCache.set(playerId, room.roomId);
       createAndBindEngine(room);
       send(ws, { type: "room_created", roomId: room.roomId, playerId });
@@ -165,8 +188,7 @@ function handleMessage(ws: WSWebSocket, data: string) {
       }
       const { room, playerId } = result;
       const joinedPlayer = room.players.find((p) => p.id === playerId)!;
-      peerSockets.set(playerId, ws);
-      socketPlayerMap.set(ws, playerId);
+      bindSocket(playerId, ws);
       playerRoomCache.set(playerId, room.roomId);
       if (!getEngine(room.roomId)) createAndBindEngine(room);
       // 如果是观战者身份加入（游戏进行中自动转观战）
@@ -189,8 +211,8 @@ function handleMessage(ws: WSWebSocket, data: string) {
         send(ws, { type: "error", message: result.error });
         return;
       }
-      peerSockets.set(msg.playerId, ws);
-      socketPlayerMap.set(ws, msg.playerId);
+
+      bindSocket(msg.playerId, ws);
       playerRoomCache.set(msg.playerId, msg.roomId);
       // 取消掉线计时器
       clearDisconnectTimers(msg.playerId);
@@ -219,31 +241,51 @@ function handleMessage(ws: WSWebSocket, data: string) {
       const room = getRoom(roomId);
       if (!room) return;
       const player = room.players.find((p) => p.id === playerId);
+      const engine = getEngine(roomId);
+      if (!engine) return;
+      if (room.phase === "settlement") {
+        // settlement 阶段不再需要房主权限，改为投票确认下一局
+        send(ws, { type: "error", message: "请使用投票按钮确认下一局" });
+        return;
+      }
       if (!player?.isHost) {
         send(ws, { type: "error", message: "只有房主可以开始游戏" });
         return;
       }
+      const result = engine.startGame();
+      if (!result.ok) {
+        send(ws, { type: "error", message: result.reason || "无法开始游戏" });
+        return;
+      }
+      processEngineEvents(roomId, engine.getEvents());
+      broadcastToRoom(roomId, { type: "game_started" });
+      for (const p of room.players) sendFullState(p.id, roomId);
+      break;
+    }
+
+    case "vote_next_round": {
+      const playerId = socketPlayerMap.get(ws);
+      if (!playerId) return;
+      const roomId = playerRoomCache.get(playerId);
+      if (!roomId) return;
+      const room = getRoom(roomId);
+      if (!room) return;
       const engine = getEngine(roomId);
       if (!engine) return;
-      if (room.phase === "settlement") {
-        const started = engine.nextRound();
-        const events = engine.getEvents();
-        if (events.length > 0) {
-          processEngineEvents(roomId, events);
-        }
-        if (!started) {
-          for (const p of room.players) sendFullState(p.id, roomId);
-          return;
-        }
-      } else {
-        const result = engine.startGame();
-        if (!result.ok) {
-          send(ws, { type: "error", message: result.reason || "无法开始游戏" });
-          return;
-        }
-        processEngineEvents(roomId, engine.getEvents());
+      if (room.phase !== "settlement") {
+        send(ws, { type: "error", message: "当前不在结算阶段" });
+        return;
       }
-      broadcastToRoom(roomId, { type: "game_started" });
+      const prevPhase = room.phase;
+      engine.voteNextRound(playerId);
+      const events = engine.getEvents();
+      if (events.length > 0) {
+        processEngineEvents(roomId, events);
+      }
+      // 如果投票导致阶段变化（所有人都投了票，自动进入下一局），广播 game_started
+      if (room.phase !== prevPhase && room.phase !== "settlement" && room.phase !== "waiting") {
+        broadcastToRoom(roomId, { type: "game_started" });
+      }
       for (const p of room.players) sendFullState(p.id, roomId);
       break;
     }
@@ -281,8 +323,7 @@ function handleMessage(ws: WSWebSocket, data: string) {
         return;
       }
       const { room: sRoom, playerId: sPlayerId } = result;
-      peerSockets.set(sPlayerId, ws);
-      socketPlayerMap.set(ws, sPlayerId);
+      bindSocket(sPlayerId, ws);
       playerRoomCache.set(sPlayerId, sRoom.roomId);
       if (!getEngine(sRoom.roomId)) createAndBindEngine(sRoom);
       send(ws, { type: "room_spectating", roomId: sRoom.roomId, playerId: sPlayerId });
@@ -359,6 +400,11 @@ function handleMessage(ws: WSWebSocket, data: string) {
       break;
     }
 
+    case "ping": {
+      send(ws, { type: "pong" });
+      break;
+    }
+
     case "leave_room": {
       const playerId = socketPlayerMap.get(ws);
       if (!playerId) return;
@@ -380,6 +426,15 @@ function handleMessage(ws: WSWebSocket, data: string) {
 function handleClose(ws: WSWebSocket) {
   const playerId = socketPlayerMap.get(ws);
   if (!playerId) return;
+
+  // 如果该 playerId 已绑定了一个更新的 socket（重连后旧 ws 才触发 close），
+  // 只清理旧映射，不触发断线逻辑
+  const currentWs = peerSockets.get(playerId);
+  if (currentWs !== ws) {
+    socketPlayerMap.delete(ws);
+    return;
+  }
+
   const roomId = playerRoomCache.get(playerId);
 
   if (roomId) {
@@ -458,12 +513,35 @@ function handleClose(ws: WSWebSocket) {
   socketPlayerMap.delete(ws);
 }
 
+function cleanupWsPing(ws: WSWebSocket) {
+  const timer = wsPingTimers.get(ws);
+  if (timer) { clearInterval(timer); wsPingTimers.delete(ws); }
+  wsAlive.delete(ws);
+}
+
 /**
  * 由 Vite plugin 调用，处理新的 WebSocket 连接
  * bufferedMessages: 在 handler 加载期间客户端发来的消息
  */
 export function handleConnection(ws: WSWebSocket, bufferedMessages: string[]) {
   console.log("[WS] Client connected");
+
+  // 服务端心跳：定时发 ws 协议级 ping，检测死连接
+  wsAlive.set(ws, true);
+  const pingTimer = setInterval(() => {
+    if (!wsAlive.get(ws)) {
+      cleanupWsPing(ws);
+      ws.terminate();
+      return;
+    }
+    wsAlive.set(ws, false);
+    ws.ping();
+  }, WS_PING_INTERVAL);
+  wsPingTimers.set(ws, pingTimer);
+
+  ws.on("pong", () => {
+    wsAlive.set(ws, true);
+  });
 
   // 先处理缓冲的消息
   for (const msg of bufferedMessages) {
@@ -472,16 +550,20 @@ export function handleConnection(ws: WSWebSocket, bufferedMessages: string[]) {
 
   // 注册后续消息处理
   ws.on("message", (data: Buffer) => {
+    // 收到任何消息也视为存活
+    wsAlive.set(ws, true);
     handleMessage(ws, data.toString());
   });
 
   ws.on("close", () => {
     console.log("[WS] Client disconnected");
+    cleanupWsPing(ws);
     handleClose(ws);
   });
 
   ws.on("error", (err) => {
     console.error("[WS] Error:", err);
+    cleanupWsPing(ws);
     handleClose(ws);
   });
 }

@@ -44,6 +44,8 @@ export function createRoom(playerName: string): { room: RoomState; playerId: str
     results: [],
     maxPlayers: MAX_PLAYERS,
     minPlayersToStart: MIN_PLAYERS_TO_START,
+    nextRoundVotes: [],
+    nextRoundVoteTotal: 0,
   };
 
   rooms.set(roomId, room);

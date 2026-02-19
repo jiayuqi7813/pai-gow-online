@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback } from "react";
 import type { Tile } from "~/game/types";
 import { DominoTile, TileLabel } from "./DominoTile";
 import { evaluatePair, isArrangementValid } from "~/game/rules";
+import { audioManager } from "~/audio/AudioManager";
 
 interface ArrangeTilesProps {
   tiles: Tile[];
@@ -55,6 +56,7 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
   const isComplete = frontIds.length === 2 && backIds.length === 2;
 
   const handleTileClick = (tileId: number) => {
+    audioManager.play("cardSlide");
     if (frontIds.includes(tileId)) {
       setFrontIds(frontIds.filter((id) => id !== tileId));
       return;
@@ -209,6 +211,7 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
 
   const handleSubmit = () => {
     if (!isComplete || !isValid) return;
+    audioManager.play("cardPlace");
     onSubmit(
       [frontIds[0], frontIds[1]] as [number, number],
       [backIds[0], backIds[1]] as [number, number]

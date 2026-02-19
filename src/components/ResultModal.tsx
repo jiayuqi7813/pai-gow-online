@@ -6,12 +6,15 @@ interface ResultModalProps {
   result: Extract<ServerMessage, { type: "round_result" }>;
   myPlayerId: string;
   onClose: () => void;
-  onNextRound: () => void;
-  isHost: boolean;
+  onVoteNextRound: () => void;
+  isSpectator: boolean;
+  hasVoted: boolean;
+  votedCount: number;
+  voteTotal: number;
   players?: Player[];
 }
 
-export function ResultModal({ result, myPlayerId, onClose, onNextRound, isHost, players }: ResultModalProps) {
+export function ResultModal({ result, myPlayerId, onClose, onVoteNextRound, isSpectator, hasVoted, votedCount, voteTotal, players }: ResultModalProps) {
   const { results, bankerResult } = result;
 
   // 10 秒自动关闭倒计时
@@ -234,9 +237,14 @@ export function ResultModal({ result, myPlayerId, onClose, onNextRound, isHost, 
           <button onClick={onClose} className="btn btn-secondary flex-1 py-2.5 rounded-xl font-serif">
             关闭 ({countdown}s)
           </button>
-          {isHost && (
-            <button onClick={onNextRound} className="btn btn-primary flex-1 py-2.5 rounded-xl font-serif">
-              {willGameEnd ? "结束游戏" : "下一局"}
+          {!isSpectator && (
+            <button
+              onClick={onVoteNextRound}
+              disabled={hasVoted}
+              className="btn btn-primary flex-1 py-2.5 rounded-xl font-serif"
+              style={hasVoted ? { opacity: 0.6 } : undefined}
+            >
+              {hasVoted ? "已确认" : willGameEnd ? "结束游戏" : "下一局"} ({votedCount}/{voteTotal})
             </button>
           )}
         </div>

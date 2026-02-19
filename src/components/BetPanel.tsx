@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Player } from "~/game/types";
+import { audioManager } from "~/audio/AudioManager";
 
 interface BetPanelProps {
   isBanker: boolean;
@@ -11,7 +12,7 @@ interface BetPanelProps {
   bankerId?: string | null;
 }
 
-const BET_OPTIONS = [50, 100, 200, 500, 1000, 2000];
+const BET_OPTIONS = [50, 100, 200, 500, 1000, 2000, 5000];
 
 export function BetPanel({ isBanker, hasBet, myChips, onBet, players, myPlayerId, bankerId }: BetPanelProps) {
   const [customBet, setCustomBet] = useState(100);
@@ -67,7 +68,7 @@ export function BetPanel({ isBanker, hasBet, myChips, onBet, players, myPlayerId
         {BET_OPTIONS.filter((b) => b <= myChips).map((amount) => (
           <button
             key={amount}
-            onClick={() => onBet(amount)}
+            onClick={() => { audioManager.play("chipLay"); onBet(amount); }}
             className="py-2.5 rounded-lg text-sm font-mono transition-all duration-200"
             style={{
               background: "rgba(255,255,255,0.03)",
@@ -93,7 +94,7 @@ export function BetPanel({ isBanker, hasBet, myChips, onBet, players, myPlayerId
         <input
           type="number"
           min={50}
-          max={Math.min(2000, myChips)}
+          max={myChips}
           step={50}
           value={customBet}
           onChange={(e) => setCustomBet(Number(e.target.value))}
@@ -107,8 +108,8 @@ export function BetPanel({ isBanker, hasBet, myChips, onBet, players, myPlayerId
           onBlur={(e) => e.currentTarget.style.borderColor = "var(--border-subtle)"}
         />
         <button
-          onClick={() => onBet(customBet)}
-          disabled={customBet < 50 || customBet > Math.min(2000, myChips)}
+          onClick={() => { audioManager.play("chipLay"); onBet(customBet); }}
+          disabled={customBet < 50 || customBet > myChips}
           className="btn btn-primary py-2 px-4 rounded-lg text-sm font-serif"
         >
           下注

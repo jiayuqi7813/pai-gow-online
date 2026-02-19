@@ -17,7 +17,6 @@ import {
 import { shuffleDeck } from "../utils/random";
 
 const MIN_BET = 50;
-const MAX_BET = 2000;
 const ARRANGE_TIME_LIMIT = 60; // seconds
 
 export type EngineEvent =
@@ -30,6 +29,7 @@ export type EngineEvent =
   | { type: "arrange_invalid"; playerId: string; reason: string }
   | { type: "round_result"; results: RoundPlayerResult[]; bankerResult: RoundPlayerResult }
   | { type: "reveal_start"; revealData: RevealData }
+  | { type: "next_round_vote"; playerId: string; votedCount: number; totalCount: number }
   | { type: "player_eliminated"; playerId: string; playerName: string }
   | { type: "game_over"; reason: string; rankings: Array<{ name: string; chips: number; stats: import("./types").PlayerStats }>; totalRounds: number }
   | { type: "error"; playerId: string; message: string };
@@ -140,7 +140,7 @@ export class GameEngine {
     const player = this.room.players.find((p) => p.id === playerId);
     if (!player || !player.connected || player.isSpectator) return false;
 
-    const bet = Math.max(MIN_BET, Math.min(MAX_BET, amount));
+    const bet = Math.max(MIN_BET, Math.min(player.chips, amount));
     if (bet > player.chips) {
       this.emit({ type: "error", playerId, message: "筹码不足" });
       return false;
@@ -361,6 +361,43 @@ export class GameEngine {
     // 同时发 round_result（客户端在开牌演出结束后使用）
     this.room.phase = "settlement";
     this.emit({ type: "round_result", results, bankerResult });
+
+    // 初始化下一局投票
+    this.initNextRoundVote();
+  }
+
+  /** 初始化下一局投票状态 */
+  private initNextRoundVote() {
+    const eligible = this.room.players.filter(
+      (p) => !p.isSpectator && p.connected && p.chips > 0
+    );
+    this.room.nextRoundVotes = [];
+    this.room.nextRoundVoteTotal = eligible.length;
+  }
+
+  /** 玩家投票下一局 */
+  voteNextRound(playerId: string): boolean {
+    if (this.room.phase !== "settlement") return false;
+
+    const player = this.room.players.find((p) => p.id === playerId);
+    if (!player || player.isSpectator || !player.connected) return false;
+
+    if (this.room.nextRoundVotes.includes(playerId)) return false;
+
+    this.room.nextRoundVotes.push(playerId);
+
+    this.emit({
+      type: "next_round_vote",
+      playerId,
+      votedCount: this.room.nextRoundVotes.length,
+      totalCount: this.room.nextRoundVoteTotal,
+    });
+
+    if (this.room.nextRoundVotes.length >= this.room.nextRoundVoteTotal) {
+      this.nextRound();
+    }
+
+    return true;
   }
 
   /** 下一局（从结算 -> 分配庄家 -> 下注） */
@@ -407,6 +444,8 @@ export class GameEngine {
       this.room.roundNumber = 0;
       this.room.bankerId = null;
       this.lastBankerPayout = 0;
+      this.room.nextRoundVotes = [];
+      this.room.nextRoundVoteTotal = 0;
       for (const p of this.room.players) {
         if (!p.connected) continue;
         p.isSpectator = false;
@@ -431,6 +470,8 @@ export class GameEngine {
       }
     }
 
+    this.room.nextRoundVotes = [];
+    this.room.nextRoundVoteTotal = 0;
     this.room.roundNumber++;
     this.prepareNewRound();
     this.assignBanker();
@@ -520,6 +561,8 @@ export class GameEngine {
         this.room.roundNumber = 0;
         this.room.bankerId = null;
         this.lastBankerPayout = 0;
+        this.room.nextRoundVotes = [];
+        this.room.nextRoundVoteTotal = 0;
         for (const p of this.room.players) {
           if (!p.connected) continue;
           p.isSpectator = false;
