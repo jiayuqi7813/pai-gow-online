@@ -19,6 +19,9 @@ const MIME_TYPES: Record<string, string> = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
   ".ttf": "font/ttf",
+  ".ogg": "audio/ogg",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
 };
 
 async function main() {
@@ -31,8 +34,8 @@ async function main() {
   const httpServer = createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
-    // 尝试静态文件（dist/client 下的资源）
-    if (url.pathname.startsWith("/assets/") || url.pathname === "/favicon.ico") {
+    // 尝试静态文件（dist/client 下的资源：/assets/, /audio/, /favicon.ico 等）
+    if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/audio/") || url.pathname === "/favicon.ico") {
       try {
         const filePath = join(clientDir, url.pathname);
         const content = readFileSync(filePath);

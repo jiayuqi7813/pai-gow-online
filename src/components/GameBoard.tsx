@@ -293,7 +293,7 @@ export function GameBoard({ ws }: { ws: WS }) {
             {gameState.roomId}
           </span>
           <span className="font-serif text-xs" style={{ color: "var(--text-muted)" }}>
-            第{gameState.roundNumber}局
+            第{gameState.roundNumber}/10局
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -479,7 +479,7 @@ export function GameBoard({ ws }: { ws: WS }) {
                   className="btn btn-primary flex-1 py-3 rounded-xl font-serif"
                   style={hasVoted ? { opacity: 0.6 } : undefined}
                 >
-                  {hasVoted ? "已确认" : "下一局"} ({gameState.nextRoundVotes.length}/{gameState.nextRoundVoteTotal})
+                  {hasVoted ? "已确认" : gameState.roundNumber >= 10 ? "结束游戏" : "下一局"} ({gameState.nextRoundVotes.length}/{gameState.nextRoundVoteTotal})
                   <span className="text-xs ml-1 opacity-70">{nextRoundCountdown}s</span>
                 </button>
               )}
@@ -507,6 +507,8 @@ export function GameBoard({ ws }: { ws: WS }) {
           votedCount={gameState.nextRoundVotes.length}
           voteTotal={gameState.nextRoundVoteTotal}
           players={gameState.players}
+          roundNumber={gameState.roundNumber}
+          maxRounds={10}
         />
       )}
 

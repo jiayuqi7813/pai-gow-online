@@ -12,9 +12,11 @@ interface ResultModalProps {
   votedCount: number;
   voteTotal: number;
   players?: Player[];
+  roundNumber?: number;
+  maxRounds?: number;
 }
 
-export function ResultModal({ result, myPlayerId, onClose, onVoteNextRound, isSpectator, hasVoted, votedCount, voteTotal, players }: ResultModalProps) {
+export function ResultModal({ result, myPlayerId, onClose, onVoteNextRound, isSpectator, hasVoted, votedCount, voteTotal, players, roundNumber, maxRounds }: ResultModalProps) {
   const { results, bankerResult } = result;
 
   // 10 秒自动关闭倒计时
@@ -58,6 +60,7 @@ export function ResultModal({ result, myPlayerId, onClose, onVoteNextRound, isSp
   const willGameEnd = players
     ? players.filter((p) => p.chips > 0 && p.connected).length < 2
     : false;
+  const isLastRound = !!(roundNumber && maxRounds && roundNumber >= maxRounds);
 
   const myResult = results.find((r) => r.playerId === myPlayerId);
   const isBanker = bankerResult.playerId === myPlayerId;
@@ -232,6 +235,20 @@ export function ResultModal({ result, myPlayerId, onClose, onVoteNextRound, isSp
           </div>
         )}
 
+        {isLastRound && !willGameEnd && bankruptPlayers.length === 0 && (
+          <div
+            className="mx-4 mb-2 p-3 rounded-xl text-center"
+            style={{
+              background: "rgba(201,168,76,0.06)",
+              border: "1px solid rgba(201,168,76,0.15)",
+            }}
+          >
+            <div className="text-sm font-serif" style={{ color: "var(--text-gold)" }}>
+              已达到 {maxRounds} 局上限，点击下一局将结算全场
+            </div>
+          </div>
+        )}
+
         {/* 按钮 */}
         <div className="p-4 flex gap-3" style={{ borderTop: "1px solid rgba(201,168,76,0.1)" }}>
           <button onClick={onClose} className="btn btn-secondary flex-1 py-2.5 rounded-xl font-serif">
@@ -244,7 +261,7 @@ export function ResultModal({ result, myPlayerId, onClose, onVoteNextRound, isSp
               className="btn btn-primary flex-1 py-2.5 rounded-xl font-serif"
               style={hasVoted ? { opacity: 0.6 } : undefined}
             >
-              {hasVoted ? "已确认" : willGameEnd ? "结束游戏" : "下一局"} ({votedCount}/{voteTotal})
+              {hasVoted ? "已确认" : (willGameEnd || isLastRound) ? "结束游戏" : "下一局"} ({votedCount}/{voteTotal})
             </button>
           )}
         </div>

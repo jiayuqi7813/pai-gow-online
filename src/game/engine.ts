@@ -18,6 +18,7 @@ import { shuffleDeck } from "../utils/random";
 
 const MIN_BET = 50;
 const ARRANGE_TIME_LIMIT = 60; // seconds
+const MAX_ROUNDS = 10;
 
 export type EngineEvent =
   | { type: "banker_assigned"; bankerId: string }
@@ -436,6 +437,40 @@ export class GameEngine {
           eliminatedPlayers.length > 0
             ? `${eliminatedPlayers.map((p) => p.name).join("、")} 已破产，剩余玩家不足，游戏结束`
             : "在线玩家不足，游戏结束",
+        rankings,
+        totalRounds: this.room.roundNumber,
+      });
+
+      this.room.phase = "waiting";
+      this.room.roundNumber = 0;
+      this.room.bankerId = null;
+      this.lastBankerPayout = 0;
+      this.room.nextRoundVotes = [];
+      this.room.nextRoundVoteTotal = 0;
+      for (const p of this.room.players) {
+        if (!p.connected) continue;
+        p.isSpectator = false;
+        p.isReady = false;
+        p.wantToPlay = false;
+        p.chips = 10000;
+        p.stats = { wins: 0, losses: 0, draws: 0, totalRounds: 0 };
+        p.tiles = [];
+        p.arrangement = null;
+        p.betAmount = 0;
+      }
+      return false;
+    }
+
+    // 达到最大轮数上限，强制结算
+    if (this.room.roundNumber >= MAX_ROUNDS) {
+      const rankings = this.room.players
+        .filter((p) => p.connected)
+        .sort((a, b) => b.chips - a.chips)
+        .map((p) => ({ name: p.name, chips: p.chips, stats: { ...p.stats } }));
+
+      this.emit({
+        type: "game_over",
+        reason: `已达到 ${MAX_ROUNDS} 局上限，游戏结束`,
         rankings,
         totalRounds: this.room.roundNumber,
       });
