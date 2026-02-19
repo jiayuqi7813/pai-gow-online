@@ -106,6 +106,15 @@ function processEngineEvents(roomId: string, events: EngineEvent[]) {
       case "banker_assigned":
         broadcastToRoom(roomId, { type: "banker_assigned", bankerId: event.bankerId });
         break;
+      case "bidding_phase":
+        broadcastToRoom(roomId, { type: "bidding_phase", biddingOrder: event.biddingOrder, currentBidderId: event.currentBidderId });
+        break;
+      case "player_bid":
+        broadcastToRoom(roomId, { type: "player_bid", playerId: event.playerId, score: event.score });
+        break;
+      case "bidding_next":
+        broadcastToRoom(roomId, { type: "bidding_next", currentBidderId: event.currentBidderId, highScore: event.highScore, highPlayerId: event.highPlayerId });
+        break;
       case "bet_phase":
         broadcastToRoom(roomId, { type: "bet_phase" });
         break;
@@ -285,6 +294,28 @@ function handleMessage(ws: WSWebSocket, data: string) {
       // 如果投票导致阶段变化（所有人都投了票，自动进入下一局），广播 game_started
       if (room.phase !== prevPhase && room.phase !== "settlement" && room.phase !== "waiting") {
         broadcastToRoom(roomId, { type: "game_started" });
+      }
+      for (const p of room.players) sendFullState(p.id, roomId);
+      break;
+    }
+
+    case "call_banker": {
+      const playerId = socketPlayerMap.get(ws);
+      if (!playerId) return;
+      const roomId = playerRoomCache.get(playerId);
+      if (!roomId) return;
+      const room = getRoom(roomId);
+      if (!room) return;
+      const engine = getEngine(roomId);
+      if (!engine) return;
+      if (room.phase !== "bidding") {
+        send(ws, { type: "error", message: "当前不在叫庄阶段" });
+        return;
+      }
+      engine.callBanker(playerId, msg.score);
+      const events = engine.getEvents();
+      if (events.length > 0) {
+        processEngineEvents(roomId, events);
       }
       for (const p of room.players) sendFullState(p.id, roomId);
       break;

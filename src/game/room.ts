@@ -1,7 +1,7 @@
 import type { Player, RoomState, GamePhase, PlayerStats } from "./types";
 import { generateRoomId, generatePlayerId } from "../utils/random";
 
-const DEFAULT_CHIPS = 10000;
+const DEFAULT_CHIPS = 25000;
 const MAX_PLAYERS = 12;
 const MIN_PLAYERS_TO_START = 2;
 
@@ -46,6 +46,12 @@ export function createRoom(playerName: string): { room: RoomState; playerId: str
     minPlayersToStart: MIN_PLAYERS_TO_START,
     nextRoundVotes: [],
     nextRoundVoteTotal: 0,
+    biddingCurrentId: null,
+    biddingHighScore: 0,
+    biddingHighPlayerId: null,
+    biddingOrder: [],
+    biddingDone: [],
+    biddingScores: {},
   };
 
   rooms.set(roomId, room);

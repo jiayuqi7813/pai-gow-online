@@ -51,6 +51,7 @@ export function GameBoard({ ws }: { ws: WS }) {
     gameOverData,
     isSpectator,
     voteNextRound,
+    callBanker,
     placeBet,
     arrangeTiles,
     leaveRoom,
@@ -79,9 +80,11 @@ export function GameBoard({ ws }: { ws: WS }) {
     prevPhaseRef.current = phase;
 
     switch (phase) {
-      case "betting":
+      case "bidding":
         if (prev === "waiting") playSound("gameStart");
-        else playSound("notify");
+        break;
+      case "betting":
+        playSound("notify");
         break;
       case "dealing":
         playSound("cardShuffle");
@@ -134,7 +137,7 @@ export function GameBoard({ ws }: { ws: WS }) {
 
   // 进入新一局（waiting/betting）时清除上一局残留的结算状态
   useEffect(() => {
-    if (gameState?.phase === "waiting" || gameState?.phase === "betting") {
+    if (gameState?.phase === "waiting" || gameState?.phase === "bidding" || gameState?.phase === "betting") {
       setShowResult(false);
       setRevealDone(false);
       clearResult();
@@ -216,6 +219,7 @@ export function GameBoard({ ws }: { ws: WS }) {
 
   const phaseLabels: Record<string, string> = {
     waiting: "等待中",
+    bidding: "叫庄中",
     betting: "下注阶段",
     dealing: "发牌中",
     arranging: "搭配阶段",
@@ -418,6 +422,22 @@ export function GameBoard({ ws }: { ws: WS }) {
               你正在观看比赛，可在玩家列表中请求下局参战
             </p>
           </div>
+        )}
+
+        {/* 叫庄阶段 — 所有人可看 */}
+        {!isRevealing && gameState.phase === "bidding" && (
+          <BiddingPanel
+            players={seatPlayers}
+            myPlayerId={playerId}
+            biddingCurrentId={gameState.biddingCurrentId}
+            biddingHighScore={gameState.biddingHighScore}
+            biddingHighPlayerId={gameState.biddingHighPlayerId}
+            biddingOrder={gameState.biddingOrder}
+            biddingDone={gameState.biddingDone}
+            biddingScores={gameState.biddingScores}
+            isSpectator={isSpectator}
+            onCall={(score) => { playSound("click"); callBanker(score); }}
+          />
         )}
 
         {/* 参战玩家操作区 */}
@@ -644,6 +664,190 @@ export function GameBoard({ ws }: { ws: WS }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BiddingPanel({
+  players,
+  myPlayerId,
+  biddingCurrentId,
+  biddingHighScore,
+  biddingHighPlayerId,
+  biddingOrder,
+  biddingDone,
+  biddingScores,
+  isSpectator,
+  onCall,
+}: {
+  players: import("~/game/types").Player[];
+  myPlayerId: string;
+  biddingCurrentId: string | null;
+  biddingHighScore: number;
+  biddingHighPlayerId: string | null;
+  biddingOrder: string[];
+  biddingDone: string[];
+  biddingScores: Record<string, number>;
+  isSpectator: boolean;
+  onCall: (score: number) => void;
+}) {
+  const isMyTurn = biddingCurrentId === myPlayerId;
+  const currentPlayer = players.find((p) => p.id === biddingCurrentId);
+  const highPlayer = biddingHighPlayerId ? players.find((p) => p.id === biddingHighPlayerId) : null;
+
+  const scoreLabels = ["", "一分", "二分", "三分"];
+
+  return (
+    <div className="panel-glass p-5 animate-slide-up">
+      <div className="text-center mb-4">
+        <div className="font-serif text-lg font-semibold" style={{ color: "var(--text-gold)" }}>
+          叫庄
+        </div>
+        <div className="text-xs font-serif mt-1" style={{ color: "var(--text-muted)" }}>
+          叫分高者当庄，叫分不影响赔率
+        </div>
+      </div>
+
+      {/* 当前最高叫分 */}
+      {biddingHighScore > 0 && highPlayer && (
+        <div
+          className="text-center mb-3 py-2 rounded-lg"
+          style={{
+            background: "rgba(201,168,76,0.08)",
+            border: "1px solid rgba(201,168,76,0.15)",
+          }}
+        >
+          <span className="text-xs font-serif" style={{ color: "var(--text-secondary)" }}>
+            当前最高：
+          </span>
+          <span className="font-serif font-bold ml-1" style={{ color: "var(--text-gold)" }}>
+            {highPlayer.name} — {scoreLabels[biddingHighScore]}
+          </span>
+        </div>
+      )}
+
+      {/* 叫庄顺序和状态 */}
+      <div className="space-y-1 mb-4">
+        {biddingOrder.map((pid) => {
+          const p = players.find((pl) => pl.id === pid);
+          if (!p) return null;
+          const isDone = biddingDone.includes(pid);
+          const isCurrent = pid === biddingCurrentId;
+          const isMe = pid === myPlayerId;
+
+          return (
+            <div
+              key={pid}
+              className="flex items-center justify-between px-3 py-2 rounded-lg transition-all"
+              style={{
+                background: isCurrent
+                  ? "rgba(201,168,76,0.1)"
+                  : "rgba(255,255,255,0.01)",
+                border: isCurrent
+                  ? "1px solid rgba(201,168,76,0.25)"
+                  : "1px solid transparent",
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{
+                    background: isCurrent
+                      ? "var(--text-gold)"
+                      : isDone
+                        ? "var(--accent-jade)"
+                        : "rgba(255,255,255,0.15)",
+                    boxShadow: isCurrent ? "0 0 6px rgba(201,168,76,0.6)" : "none",
+                    animation: isCurrent ? "pulse 1.5s infinite" : "none",
+                  }}
+                />
+                <span
+                  className="text-sm font-serif"
+                  style={{
+                    color: isCurrent
+                      ? "var(--text-gold)"
+                      : isMe
+                        ? "var(--text-primary)"
+                        : "var(--text-secondary)",
+                    fontWeight: isCurrent || isMe ? 600 : 400,
+                  }}
+                >
+                  {p.name}{isMe ? " (你)" : ""}
+                </span>
+              </div>
+              <span
+                className="text-xs font-serif px-2 py-0.5 rounded"
+                style={{
+                  background: isCurrent
+                    ? "rgba(201,168,76,0.15)"
+                    : isDone && biddingScores[pid] > 0
+                      ? "rgba(201,168,76,0.1)"
+                      : isDone
+                        ? "rgba(255,255,255,0.04)"
+                        : "rgba(255,255,255,0.03)",
+                  color: isCurrent
+                    ? "var(--text-gold)"
+                    : isDone && biddingScores[pid] > 0
+                      ? "var(--text-gold)"
+                      : isDone
+                        ? "var(--text-muted)"
+                        : "var(--text-muted)",
+                  border: isCurrent
+                    ? "1px solid rgba(201,168,76,0.25)"
+                    : isDone && biddingScores[pid] > 0
+                      ? "1px solid rgba(201,168,76,0.2)"
+                      : "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
+                {isCurrent ? "叫庄中..." : isDone ? (biddingScores[pid] > 0 ? scoreLabels[biddingScores[pid]] : "不叫") : "等待"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 操作按钮 */}
+      {isMyTurn && !isSpectator && (
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            {[1, 2, 3].map((score) => (
+              <button
+                key={score}
+                onClick={() => onCall(score)}
+                disabled={score <= biddingHighScore}
+                className="btn btn-primary flex-1 py-3 rounded-xl font-serif text-base font-bold transition-all"
+                style={score <= biddingHighScore ? { opacity: 0.35, cursor: "not-allowed" } : undefined}
+              >
+                {scoreLabels[score]}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => onCall(0)}
+            className="btn btn-secondary w-full py-2.5 rounded-xl font-serif"
+          >
+            不叫
+          </button>
+        </div>
+      )}
+
+      {/* 等待其他玩家叫庄 */}
+      {!isMyTurn && !isSpectator && biddingDone.includes(myPlayerId) && (
+        <div className="text-center py-2">
+          <span className="text-sm font-serif" style={{ color: "var(--text-muted)" }}>
+            等待其他玩家叫庄...
+          </span>
+        </div>
+      )}
+
+      {/* 观战者提示 */}
+      {isSpectator && (
+        <div className="text-center py-2">
+          <span className="text-xs font-serif" style={{ color: "var(--text-muted)" }}>
+            {currentPlayer ? `${currentPlayer.name} 正在叫庄...` : "叫庄中..."}
+          </span>
         </div>
       )}
     </div>

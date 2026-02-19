@@ -174,6 +174,59 @@ function handleServerMessage(msg: ServerMessage) {
       break;
     }
 
+    case "bidding_phase": {
+      const gsBP = globalState.gameState;
+      if (gsBP) {
+        updateState({
+          gameState: {
+            ...gsBP,
+            phase: "bidding",
+            biddingOrder: msg.biddingOrder,
+            biddingCurrentId: msg.currentBidderId,
+            biddingHighScore: 0,
+            biddingHighPlayerId: null,
+            biddingDone: [],
+            biddingScores: {},
+          },
+        });
+      }
+      break;
+    }
+
+    case "player_bid": {
+      const gsPB = globalState.gameState;
+      if (gsPB) {
+        const newDone = gsPB.biddingDone.includes(msg.playerId)
+          ? gsPB.biddingDone
+          : [...gsPB.biddingDone, msg.playerId];
+        updateState({
+          gameState: {
+            ...gsPB,
+            biddingDone: newDone,
+            biddingScores: { ...gsPB.biddingScores, [msg.playerId]: msg.score },
+            biddingHighScore: msg.score > gsPB.biddingHighScore ? msg.score : gsPB.biddingHighScore,
+            biddingHighPlayerId: msg.score > gsPB.biddingHighScore ? msg.playerId : gsPB.biddingHighPlayerId,
+          },
+        });
+      }
+      break;
+    }
+
+    case "bidding_next": {
+      const gsBN = globalState.gameState;
+      if (gsBN) {
+        updateState({
+          gameState: {
+            ...gsBN,
+            biddingCurrentId: msg.currentBidderId,
+            biddingHighScore: msg.highScore,
+            biddingHighPlayerId: msg.highPlayerId,
+          },
+        });
+      }
+      break;
+    }
+
     case "next_round_vote": {
       const gsVote = globalState.gameState;
       if (gsVote) {
@@ -430,6 +483,10 @@ export function useWebSocket() {
     sendRaw({ type: "vote_next_round" });
   }, []);
 
+  const callBanker = useCallback((score: number) => {
+    sendRaw({ type: "call_banker", score });
+  }, []);
+
   const placeBet = useCallback((amount: number) => {
     sendRaw({ type: "place_bet", amount });
   }, []);
@@ -499,6 +556,7 @@ export function useWebSocket() {
     toggleReady,
     startGame,
     voteNextRound,
+    callBanker,
     placeBet,
     arrangeTiles,
     leaveRoom,

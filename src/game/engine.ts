@@ -22,6 +22,9 @@ const MAX_ROUNDS = 10;
 
 export type EngineEvent =
   | { type: "banker_assigned"; bankerId: string }
+  | { type: "bidding_phase"; biddingOrder: string[]; currentBidderId: string }
+  | { type: "player_bid"; playerId: string; score: number }
+  | { type: "bidding_next"; currentBidderId: string; highScore: number; highPlayerId: string | null }
   | { type: "bet_phase" }
   | { type: "player_bet"; playerId: string; amount: number }
   | { type: "tiles_dealt"; playerId: string; tiles: Tile[] }
@@ -65,7 +68,7 @@ export class GameEngine {
     return this.room.players.filter((p) => !p.isSpectator && p.connected);
   }
 
-  /** 开始游戏（从等待 -> 分配庄家 -> 下注） */
+  /** 开始游戏（从等待 -> 叫庄 -> 下注） */
   startGame(): { ok: boolean; reason?: string } {
     if (this.room.phase !== "waiting") return { ok: false, reason: "游戏已开始" };
     const active = this.getActivePlayers();
@@ -82,8 +85,7 @@ export class GameEngine {
     }
     this.lastBankerPayout = 0;
     this.prepareNewRound();
-    this.assignBanker();
-    this.startBetPhase();
+    this.startBiddingPhase();
     return { ok: true };
   }
 
@@ -122,6 +124,124 @@ export class GameEngine {
     }
 
     this.emit({ type: "banker_assigned", bankerId: this.room.bankerId! });
+  }
+
+  /** 开始叫庄阶段 */
+  private startBiddingPhase() {
+    const active = this.getActivePlayers();
+
+    // 连庄判断：上一局庄家盈利且仍在参战中 → 跳过叫庄直接连庄
+    if (
+      this.room.roundNumber > 1 &&
+      this.lastBankerPayout > 0 &&
+      this.room.bankerId &&
+      active.some((p) => p.id === this.room.bankerId)
+    ) {
+      this.emit({ type: "banker_assigned", bankerId: this.room.bankerId! });
+      this.startBetPhase();
+      return;
+    }
+
+    this.room.phase = "bidding";
+    const order = active.map((p) => p.id);
+    // 随机打乱叫庄顺序
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    this.room.biddingOrder = order;
+    this.room.biddingDone = [];
+    this.room.biddingScores = {};
+    this.room.biddingHighScore = 0;
+    this.room.biddingHighPlayerId = null;
+    this.room.biddingCurrentId = order[0];
+
+    this.emit({
+      type: "bidding_phase",
+      biddingOrder: order,
+      currentBidderId: order[0],
+    });
+  }
+
+  /** 玩家叫庄（score: 0=不叫, 1/2/3=叫分） */
+  callBanker(playerId: string, score: number): boolean {
+    if (this.room.phase !== "bidding") return false;
+    if (this.room.biddingCurrentId !== playerId) {
+      this.emit({ type: "error", playerId, message: "还没轮到你叫庄" });
+      return false;
+    }
+    if (this.room.biddingDone.includes(playerId)) return false;
+
+    const clampedScore = Math.max(0, Math.min(3, Math.floor(score)));
+
+    if (clampedScore > 0 && clampedScore <= this.room.biddingHighScore) {
+      this.emit({ type: "error", playerId, message: `叫分必须高于当前最高分 ${this.room.biddingHighScore}` });
+      return false;
+    }
+
+    this.room.biddingDone.push(playerId);
+    this.room.biddingScores[playerId] = clampedScore;
+
+    if (clampedScore > 0) {
+      this.room.biddingHighScore = clampedScore;
+      this.room.biddingHighPlayerId = playerId;
+    }
+
+    this.emit({ type: "player_bid", playerId, score: clampedScore });
+
+    // 叫了3分直接确定庄家
+    if (clampedScore === 3) {
+      this.finalizeBidding();
+      return true;
+    }
+
+    // 找下一个未叫的玩家
+    const nextPlayer = this.room.biddingOrder.find(
+      (id) => !this.room.biddingDone.includes(id)
+    );
+
+    if (!nextPlayer) {
+      // 所有人都叫过了
+      this.finalizeBidding();
+    } else {
+      this.room.biddingCurrentId = nextPlayer;
+      this.emit({
+        type: "bidding_next",
+        currentBidderId: nextPlayer,
+        highScore: this.room.biddingHighScore,
+        highPlayerId: this.room.biddingHighPlayerId,
+      });
+    }
+
+    return true;
+  }
+
+  /** 叫庄结束，确定庄家 */
+  private finalizeBidding() {
+    if (this.room.biddingHighPlayerId) {
+      this.room.bankerId = this.room.biddingHighPlayerId;
+    } else {
+      // 无人叫庄，使用轮庄规则
+      this.assignBanker();
+      // assignBanker 已经 emit 了 banker_assigned，直接开始下注
+      this.resetBiddingState();
+      this.startBetPhase();
+      return;
+    }
+
+    this.emit({ type: "banker_assigned", bankerId: this.room.bankerId! });
+    this.resetBiddingState();
+    this.startBetPhase();
+  }
+
+  /** 清理叫庄临时状态 */
+  private resetBiddingState() {
+    this.room.biddingCurrentId = null;
+    this.room.biddingHighScore = 0;
+    this.room.biddingHighPlayerId = null;
+    this.room.biddingOrder = [];
+    this.room.biddingDone = [];
+    this.room.biddingScores = {};
   }
 
   /** 开始下注阶段 */
@@ -447,12 +567,13 @@ export class GameEngine {
       this.lastBankerPayout = 0;
       this.room.nextRoundVotes = [];
       this.room.nextRoundVoteTotal = 0;
+      this.resetBiddingState();
       for (const p of this.room.players) {
         if (!p.connected) continue;
         p.isSpectator = false;
         p.isReady = false;
         p.wantToPlay = false;
-        p.chips = 10000;
+        p.chips = 25000;
         p.stats = { wins: 0, losses: 0, draws: 0, totalRounds: 0 };
         p.tiles = [];
         p.arrangement = null;
@@ -481,12 +602,13 @@ export class GameEngine {
       this.lastBankerPayout = 0;
       this.room.nextRoundVotes = [];
       this.room.nextRoundVoteTotal = 0;
+      this.resetBiddingState();
       for (const p of this.room.players) {
         if (!p.connected) continue;
         p.isSpectator = false;
         p.isReady = false;
         p.wantToPlay = false;
-        p.chips = 10000;
+        p.chips = 25000;
         p.stats = { wins: 0, losses: 0, draws: 0, totalRounds: 0 };
         p.tiles = [];
         p.arrangement = null;
@@ -501,7 +623,7 @@ export class GameEngine {
         p.isSpectator = false;
         p.isReady = false;
         p.wantToPlay = false;
-        if (p.chips <= 0) p.chips = 10000;
+        if (p.chips <= 0) p.chips = 25000;
       }
     }
 
@@ -509,8 +631,7 @@ export class GameEngine {
     this.room.nextRoundVoteTotal = 0;
     this.room.roundNumber++;
     this.prepareNewRound();
-    this.assignBanker();
-    this.startBetPhase();
+    this.startBiddingPhase();
     return true;
   }
 
@@ -526,6 +647,7 @@ export class GameEngine {
     const player = this.room.players.find((p) => p.id === playerId);
     if (!player || player.connected) return false;
 
+    if (this.room.phase === "bidding" && this.room.biddingCurrentId === playerId) return true;
     if (this.room.phase === "betting" && playerId !== this.room.bankerId && player.betAmount === 0 && !player.isSpectator) return true;
     if (this.room.phase === "arranging" && !player.arrangement && player.tiles.length === 4) return true;
 
@@ -536,6 +658,10 @@ export class GameEngine {
   handlePlayerActionTimeout(playerId: string): void {
     const player = this.room.players.find((p) => p.id === playerId);
     if (!player || player.connected) return;
+
+    if (this.room.phase === "bidding" && this.room.biddingCurrentId === playerId) {
+      this.callBanker(playerId, 0);
+    }
 
     if (this.room.phase === "betting" && playerId !== this.room.bankerId && player.betAmount === 0 && !player.isSpectator) {
       const bet = Math.min(MIN_BET, player.chips);
@@ -598,12 +724,13 @@ export class GameEngine {
         this.lastBankerPayout = 0;
         this.room.nextRoundVotes = [];
         this.room.nextRoundVoteTotal = 0;
+        this.resetBiddingState();
         for (const p of this.room.players) {
           if (!p.connected) continue;
           p.isSpectator = false;
           p.isReady = false;
           p.wantToPlay = false;
-          p.chips = 10000;
+          p.chips = 25000;
           p.stats = { wins: 0, losses: 0, draws: 0, totalRounds: 0 };
           p.tiles = [];
           p.arrangement = null;

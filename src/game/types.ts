@@ -65,6 +65,7 @@ export interface RoundPlayerResult {
 /** 游戏阶段 */
 export type GamePhase =
   | "waiting"
+  | "bidding"
   | "betting"
   | "dealing"
   | "arranging"
@@ -124,6 +125,18 @@ export interface RoomState {
   nextRoundVotes: string[];
   /** 投票下一局：需要投票的总人数 */
   nextRoundVoteTotal: number;
+  /** 叫庄：当前轮到叫分的玩家ID */
+  biddingCurrentId: string | null;
+  /** 叫庄：当前最高叫分（0=无人叫） */
+  biddingHighScore: number;
+  /** 叫庄：当前最高叫分的玩家ID */
+  biddingHighPlayerId: string | null;
+  /** 叫庄：叫分顺序（参战玩家ID列表） */
+  biddingOrder: string[];
+  /** 叫庄：已叫过的玩家ID（含不叫） */
+  biddingDone: string[];
+  /** 叫庄：每人叫分记录 */
+  biddingScores: Record<string, number>;
 }
 
 /** 客户端消息 */
@@ -136,6 +149,7 @@ export type ClientMessage =
   | { type: "toggle_ready" }
   | { type: "start_game" }
   | { type: "vote_next_round" }
+  | { type: "call_banker"; score: number }
   | { type: "place_bet"; amount: number }
   | { type: "arrange_tiles"; front: [number, number]; back: [number, number] }
   | { type: "leave_room" }
@@ -153,6 +167,9 @@ export type ServerMessage =
   | { type: "join_playing_queued"; playerId: string }
   | { type: "game_started" }
   | { type: "banker_assigned"; bankerId: string }
+  | { type: "bidding_phase"; biddingOrder: string[]; currentBidderId: string }
+  | { type: "player_bid"; playerId: string; score: number }
+  | { type: "bidding_next"; currentBidderId: string; highScore: number; highPlayerId: string | null }
   | { type: "bet_phase" }
   | { type: "player_bet"; playerId: string; amount: number }
   | { type: "tiles_dealt"; tiles: Tile[] }
