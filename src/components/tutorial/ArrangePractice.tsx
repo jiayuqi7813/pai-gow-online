@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { ALL_TILES } from "~/game/tiles";
 import { DominoTile, TileLabel } from "../DominoTile";
 import { evaluatePair, isArrangementValid, findBestArrangement } from "~/game/rules";
@@ -46,12 +46,60 @@ export function ArrangePractice() {
   const bestFrontEval = evaluatePair(bestArrangement.front);
   const bestBackEval = evaluatePair(bestArrangement.back);
 
+  // 槽位和牌的 DOM 引用，用于点击飞行动画
+  const frontSlotRef = useRef<HTMLDivElement>(null);
+  const backSlotRef = useRef<HTMLDivElement>(null);
+  const tileRefs = useRef<Map<number, HTMLElement>>(new Map());
+
+  const animateTileToSlot = useCallback((tileId: number, target: "front" | "back") => {
+    const wrapperEl = tileRefs.current.get(tileId);
+    const slotEl = target === "front" ? frontSlotRef.current : backSlotRef.current;
+    if (!wrapperEl || !slotEl) return;
+
+    const dominoEl = wrapperEl.querySelector(".domino-tile") as HTMLElement;
+    if (!dominoEl) return;
+
+    const srcRect = dominoEl.getBoundingClientRect();
+    const slotRect = slotEl.getBoundingClientRect();
+
+    const clone = dominoEl.cloneNode(true) as HTMLElement;
+    clone.style.position = "fixed";
+    clone.style.left = `${srcRect.left}px`;
+    clone.style.top = `${srcRect.top}px`;
+    clone.style.width = `${srcRect.width}px`;
+    clone.style.height = `${srcRect.height}px`;
+    clone.style.zIndex = "9999";
+    clone.style.pointerEvents = "none";
+    clone.style.margin = "0";
+    clone.classList.add("tile-flying");
+    document.body.appendChild(clone);
+
+    const destX = slotRect.left + slotRect.width / 2 - srcRect.width / 2;
+    const destY = slotRect.top + slotRect.height / 2 - srcRect.height / 2;
+    const dx = destX - srcRect.left;
+    const dy = destY - srcRect.top;
+
+    const anim = clone.animate(
+      [
+        { transform: "translate(0, 0) scale(1)", opacity: "1" },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.95)`, opacity: "0" },
+      ],
+      {
+        duration: 350,
+        easing: "cubic-bezier(0.34, 1.2, 0.64, 1)",
+        fill: "forwards",
+      }
+    );
+
+    anim.onfinish = () => clone.remove();
+  }, []);
+
   const handleTileClick = (tileId: number) => {
     if (submitted) return;
     if (frontIds.includes(tileId)) { setFrontIds(frontIds.filter((id) => id !== tileId)); return; }
     if (backIds.includes(tileId)) { setBackIds(backIds.filter((id) => id !== tileId)); return; }
-    if (frontIds.length < 2) setFrontIds([...frontIds, tileId]);
-    else if (backIds.length < 2) setBackIds([...backIds, tileId]);
+    if (frontIds.length < 2) { animateTileToSlot(tileId, "front"); setFrontIds([...frontIds, tileId]); }
+    else if (backIds.length < 2) { animateTileToSlot(tileId, "back"); setBackIds([...backIds, tileId]); }
   };
 
   const handleReset = () => {
@@ -108,7 +156,7 @@ export function ArrangePractice() {
           <span className="text-sm font-serif font-semibold" style={{ color: "var(--accent-jade)" }}>前道 ×1</span>
           {frontEval && <span className="text-xs font-serif ml-auto" style={{ color: "var(--accent-jade)" }}>{frontEval.description}</span>}
         </div>
-        <div className={`slot-area min-h-[88px] ${isComplete && !isValid ? "invalid" : frontIds.length === 2 ? "valid" : ""}`}>
+        <div ref={frontSlotRef} className={`slot-area min-h-[88px] ${isComplete && !isValid ? "invalid" : frontIds.length === 2 ? "valid" : ""}`}>
           {frontTiles.map((tile) => (
             <div key={tile.id} className="flex flex-col items-center gap-0.5">
               <DominoTile tile={tile} selected onClick={() => handleTileClick(tile.id)} />
@@ -125,7 +173,7 @@ export function ArrangePractice() {
           <span className="text-sm font-serif font-semibold" style={{ color: "var(--accent-crimson-light)" }}>后道 ×2</span>
           {backEval && <span className="text-xs font-serif ml-auto" style={{ color: "var(--accent-crimson-light)" }}>{backEval.description}</span>}
         </div>
-        <div className={`slot-area min-h-[88px] ${isComplete && !isValid ? "invalid" : backIds.length === 2 ? "valid" : ""}`}>
+        <div ref={backSlotRef} className={`slot-area min-h-[88px] ${isComplete && !isValid ? "invalid" : backIds.length === 2 ? "valid" : ""}`}>
           {backTiles.map((tile) => (
             <div key={tile.id} className="flex flex-col items-center gap-0.5">
               <DominoTile tile={tile} selected onClick={() => handleTileClick(tile.id)} />
@@ -148,7 +196,7 @@ export function ArrangePractice() {
           <span className="text-xs font-serif mb-1 block" style={{ color: "var(--text-muted)" }}>未分配</span>
           <div className="flex gap-3 justify-center">
             {unassigned.map((tile) => (
-              <div key={tile.id} className="flex flex-col items-center gap-0.5">
+              <div key={tile.id} ref={(el) => { if (el) tileRefs.current.set(tile.id, el); else tileRefs.current.delete(tile.id); }} className="flex flex-col items-center gap-0.5">
                 <DominoTile tile={tile} onClick={() => handleTileClick(tile.id)} />
                 <TileLabel tile={tile} />
               </div>

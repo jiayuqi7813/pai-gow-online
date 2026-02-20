@@ -15,6 +15,9 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
   const [backIds, setBackIds] = useState<number[]>([]);
   const [dragOverSlot, setDragOverSlot] = useState<"front" | "back" | null>(null);
 
+  // 未分配牌的 DOM 引用，用于点击动画
+  const tileRefs = useRef<Map<number, HTMLElement>>(new Map());
+
   // 触摸拖拽状态
   const touchDragRef = useRef<{
     tileId: number;
@@ -55,6 +58,52 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
 
   const isComplete = frontIds.length === 2 && backIds.length === 2;
 
+  // 点击分配牌时的飞行动画：从手牌区飞向目标槽位
+  const animateTileToSlot = useCallback((tileId: number, target: "front" | "back") => {
+    const wrapperEl = tileRefs.current.get(tileId);
+    const slotEl = target === "front" ? frontSlotRef.current : backSlotRef.current;
+    if (!wrapperEl || !slotEl) return;
+
+    const dominoEl = wrapperEl.querySelector(".domino-tile") as HTMLElement;
+    if (!dominoEl) return;
+
+    const srcRect = dominoEl.getBoundingClientRect();
+    const slotRect = slotEl.getBoundingClientRect();
+
+    // 克隆牌面元素
+    const clone = dominoEl.cloneNode(true) as HTMLElement;
+    clone.style.position = "fixed";
+    clone.style.left = `${srcRect.left}px`;
+    clone.style.top = `${srcRect.top}px`;
+    clone.style.width = `${srcRect.width}px`;
+    clone.style.height = `${srcRect.height}px`;
+    clone.style.zIndex = "9999";
+    clone.style.pointerEvents = "none";
+    clone.style.margin = "0";
+    clone.classList.add("tile-flying");
+    document.body.appendChild(clone);
+
+    // 计算目标位置（槽位中心）
+    const destX = slotRect.left + slotRect.width / 2 - srcRect.width / 2;
+    const destY = slotRect.top + slotRect.height / 2 - srcRect.height / 2;
+    const dx = destX - srcRect.left;
+    const dy = destY - srcRect.top;
+
+    const anim = clone.animate(
+      [
+        { transform: "translate(0, 0) scale(1)", opacity: "1" },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.95)`, opacity: "0" },
+      ],
+      {
+        duration: 350,
+        easing: "cubic-bezier(0.34, 1.2, 0.64, 1)",
+        fill: "forwards",
+      }
+    );
+
+    anim.onfinish = () => clone.remove();
+  }, []);
+
   const handleTileClick = (tileId: number) => {
     audioManager.play("cardSlide");
     if (frontIds.includes(tileId)) {
@@ -66,14 +115,17 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
       return;
     }
     if (frontIds.length < 2) {
+      animateTileToSlot(tileId, "front");
       setFrontIds([...frontIds, tileId]);
     } else if (backIds.length < 2) {
+      animateTileToSlot(tileId, "back");
       setBackIds([...backIds, tileId]);
     }
   };
 
   const handleAssignToFront = (tileId: number) => {
     if (frontIds.length >= 2) return;
+    animateTileToSlot(tileId, "front");
     setBackIds(backIds.filter((id) => id !== tileId));
     if (!frontIds.includes(tileId)) {
       setFrontIds([...frontIds, tileId]);
@@ -82,6 +134,7 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
 
   const handleAssignToBack = (tileId: number) => {
     if (backIds.length >= 2) return;
+    animateTileToSlot(tileId, "back");
     setFrontIds(frontIds.filter((id) => id !== tileId));
     if (!backIds.includes(tileId)) {
       setBackIds([...backIds, tileId]);
@@ -371,6 +424,10 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
               {unassigned.map((tile) => (
                 <div
                   key={tile.id}
+                  ref={(el) => {
+                    if (el) tileRefs.current.set(tile.id, el);
+                    else tileRefs.current.delete(tile.id);
+                  }}
                   className="flex flex-col items-center gap-0.5 cursor-grab active:cursor-grabbing touch-none"
                   draggable
                   onDragStart={(e) => handleDragStart(e, tile.id)}
