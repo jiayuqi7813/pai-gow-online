@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useLayoutEffect } from "react";
 import type { Tile } from "~/game/types";
 import { DominoTile, TileLabel } from "./DominoTile";
 import { evaluatePair, isArrangementValid } from "~/game/rules";
@@ -29,6 +29,14 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
     ghost: HTMLElement | null;
     startX: number;
     startY: number;
+  } | null>(null);
+
+  // 待执行的飞行动画信息，在状态更新前捕获源位置，渲染后执行动画
+  const pendingAnimationRef = useRef<{
+    tileId: number;
+    sourceRect: DOMRect;
+    direction: "toSlot" | "toHand";
+    slot: "front" | "back";
   } | null>(null);
 
   const unassigned = tiles.filter(
@@ -62,123 +70,52 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
 
   const isComplete = frontIds.length === 2 && backIds.length === 2;
 
-  // 点击分配牌时的飞行动画：从手牌区飞向目标槽位
-  const animateTileToSlot = useCallback((tileId: number, target: "front" | "back") => {
-    const wrapperEl = tileRefs.current.get(tileId);
-    const slotEl = target === "front" ? frontSlotRef.current : backSlotRef.current;
-    if (!wrapperEl || !slotEl) return;
-
-    const dominoEl = wrapperEl.querySelector(".domino-tile") as HTMLElement;
-    if (!dominoEl) return;
-
-    const srcRect = dominoEl.getBoundingClientRect();
-    const slotRect = slotEl.getBoundingClientRect();
-
-    // 克隆牌面元素
-    const clone = dominoEl.cloneNode(true) as HTMLElement;
-    clone.style.position = "fixed";
-    clone.style.left = `${srcRect.left}px`;
-    clone.style.top = `${srcRect.top}px`;
-    clone.style.width = `${srcRect.width}px`;
-    clone.style.height = `${srcRect.height}px`;
-    clone.style.zIndex = "9999";
-    clone.style.pointerEvents = "none";
-    clone.style.margin = "0";
-    clone.classList.add("tile-flying");
-    document.body.appendChild(clone);
-
-    // 计算目标位置（槽位中心）
-    const destX = slotRect.left + slotRect.width / 2 - srcRect.width / 2;
-    const destY = slotRect.top + slotRect.height / 2 - srcRect.height / 2;
-    const dx = destX - srcRect.left;
-    const dy = destY - srcRect.top;
-
-    const anim = clone.animate(
-      [
-        { transform: "translate(0, 0) scale(1)", opacity: "1" },
-        { transform: `translate(${dx}px, ${dy}px) scale(0.95)`, opacity: "0" },
-      ],
-      {
-        duration: 350,
-        easing: "cubic-bezier(0.34, 1.2, 0.64, 1)",
-        fill: "forwards",
-      }
-    );
-
-    anim.onfinish = () => clone.remove();
-  }, []);
-
-  // 点击槽位牌时的飞行动画：从前道/后道槽位飞向手牌区
-  const animateTileToHand = useCallback((tileId: number, source: "front" | "back") => {
-    const sourceRefs = source === "front" ? frontTileRefs : backTileRefs;
-    const wrapperEl = sourceRefs.current.get(tileId);
-    const handEl = unassignedRef.current;
-    if (!wrapperEl || !handEl) return;
-
-    const dominoEl = wrapperEl.querySelector(".domino-tile") as HTMLElement;
-    if (!dominoEl) return;
-
-    const srcRect = dominoEl.getBoundingClientRect();
-    const handRect = handEl.getBoundingClientRect();
-
-    // 克隆牌面元素
-    const clone = dominoEl.cloneNode(true) as HTMLElement;
-    clone.style.position = "fixed";
-    clone.style.left = `${srcRect.left}px`;
-    clone.style.top = `${srcRect.top}px`;
-    clone.style.width = `${srcRect.width}px`;
-    clone.style.height = `${srcRect.height}px`;
-    clone.style.zIndex = "9999";
-    clone.style.pointerEvents = "none";
-    clone.style.margin = "0";
-    clone.classList.add("tile-flying");
-    document.body.appendChild(clone);
-
-    // 计算目标位置（手牌区中心）
-    const destX = handRect.left + handRect.width / 2 - srcRect.width / 2;
-    const destY = handRect.top + handRect.height / 2 - srcRect.height / 2;
-    const dx = destX - srcRect.left;
-    const dy = destY - srcRect.top;
-
-    const anim = clone.animate(
-      [
-        { transform: "translate(0, 0) scale(1)", opacity: "1" },
-        { transform: `translate(${dx}px, ${dy}px) scale(0.95)`, opacity: "0" },
-      ],
-      {
-        duration: 350,
-        easing: "cubic-bezier(0.34, 1.2, 0.64, 1)",
-        fill: "forwards",
-      }
-    );
-
-    anim.onfinish = () => clone.remove();
-  }, []);
-
   const handleTileClick = (tileId: number) => {
     audioManager.play("cardSlide");
     if (frontIds.includes(tileId)) {
-      animateTileToHand(tileId, "front");
+      const wrapperEl = frontTileRefs.current.get(tileId);
+      const dominoEl = wrapperEl?.querySelector(".domino-tile") as HTMLElement | null;
+      const sourceRect = dominoEl?.getBoundingClientRect();
+      if (sourceRect) {
+        pendingAnimationRef.current = { tileId, sourceRect, direction: "toHand", slot: "front" };
+      }
       setFrontIds(frontIds.filter((id) => id !== tileId));
       return;
     }
     if (backIds.includes(tileId)) {
-      animateTileToHand(tileId, "back");
+      const wrapperEl = backTileRefs.current.get(tileId);
+      const dominoEl = wrapperEl?.querySelector(".domino-tile") as HTMLElement | null;
+      const sourceRect = dominoEl?.getBoundingClientRect();
+      if (sourceRect) {
+        pendingAnimationRef.current = { tileId, sourceRect, direction: "toHand", slot: "back" };
+      }
       setBackIds(backIds.filter((id) => id !== tileId));
       return;
     }
+    const wrapperEl = tileRefs.current.get(tileId);
+    const dominoEl = wrapperEl?.querySelector(".domino-tile") as HTMLElement | null;
+    const sourceRect = dominoEl?.getBoundingClientRect() ?? null;
     if (frontIds.length < 2) {
-      animateTileToSlot(tileId, "front");
+      if (sourceRect) {
+        pendingAnimationRef.current = { tileId, sourceRect, direction: "toSlot", slot: "front" };
+      }
       setFrontIds([...frontIds, tileId]);
     } else if (backIds.length < 2) {
-      animateTileToSlot(tileId, "back");
+      if (sourceRect) {
+        pendingAnimationRef.current = { tileId, sourceRect, direction: "toSlot", slot: "back" };
+      }
       setBackIds([...backIds, tileId]);
     }
   };
 
   const handleAssignToFront = (tileId: number) => {
     if (frontIds.length >= 2) return;
-    animateTileToSlot(tileId, "front");
+    const wrapperEl = tileRefs.current.get(tileId);
+    const dominoEl = wrapperEl?.querySelector(".domino-tile") as HTMLElement | null;
+    const sourceRect = dominoEl?.getBoundingClientRect() ?? null;
+    if (sourceRect) {
+      pendingAnimationRef.current = { tileId, sourceRect, direction: "toSlot", slot: "front" };
+    }
     setBackIds(backIds.filter((id) => id !== tileId));
     if (!frontIds.includes(tileId)) {
       setFrontIds([...frontIds, tileId]);
@@ -187,7 +124,12 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
 
   const handleAssignToBack = (tileId: number) => {
     if (backIds.length >= 2) return;
-    animateTileToSlot(tileId, "back");
+    const wrapperEl = tileRefs.current.get(tileId);
+    const dominoEl = wrapperEl?.querySelector(".domino-tile") as HTMLElement | null;
+    const sourceRect = dominoEl?.getBoundingClientRect() ?? null;
+    if (sourceRect) {
+      pendingAnimationRef.current = { tileId, sourceRect, direction: "toSlot", slot: "back" };
+    }
     setFrontIds(frontIds.filter((id) => id !== tileId));
     if (!backIds.includes(tileId)) {
       setBackIds([...backIds, tileId]);
@@ -198,6 +140,67 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
     setFrontIds([]);
     setBackIds([]);
   };
+
+  // 状态更新后执行飞行动画：克隆牌面从源位置沿贝塞尔曲线飞向目标的精确位置
+  useLayoutEffect(() => {
+    const pending = pendingAnimationRef.current;
+    if (!pending) return;
+    pendingAnimationRef.current = null;
+
+    const { tileId, sourceRect, direction, slot } = pending;
+
+    // 找到目标元素（渲染后的实际位置）
+    let targetWrapperEl: HTMLElement | undefined;
+    if (direction === "toSlot") {
+      const targetRefs = slot === "front" ? frontTileRefs : backTileRefs;
+      targetWrapperEl = targetRefs.current.get(tileId);
+    } else {
+      targetWrapperEl = tileRefs.current.get(tileId);
+    }
+    if (!targetWrapperEl) return;
+
+    const dominoEl = targetWrapperEl.querySelector(".domino-tile") as HTMLElement;
+    if (!dominoEl) return;
+
+    const destRect = dominoEl.getBoundingClientRect();
+
+    // 克隆牌面元素，放置在源位置
+    const clone = dominoEl.cloneNode(true) as HTMLElement;
+    clone.style.position = "fixed";
+    clone.style.left = `${sourceRect.left}px`;
+    clone.style.top = `${sourceRect.top}px`;
+    clone.style.width = `${sourceRect.width}px`;
+    clone.style.height = `${sourceRect.height}px`;
+    clone.style.zIndex = "9999";
+    clone.style.pointerEvents = "none";
+    clone.style.margin = "0";
+    clone.classList.add("tile-flying");
+    document.body.appendChild(clone);
+
+    // 动画期间隐藏目标位置的实际牌
+    targetWrapperEl.style.visibility = "hidden";
+
+    // 计算从源到目标的位移
+    const dx = destRect.left - sourceRect.left;
+    const dy = destRect.top - sourceRect.top;
+
+    const anim = clone.animate(
+      [
+        { transform: "translate(0, 0) scale(1)" },
+        { transform: `translate(${dx}px, ${dy}px) scale(1)` },
+      ],
+      {
+        duration: 350,
+        easing: "cubic-bezier(0.34, 1.2, 0.64, 1)",
+        fill: "forwards",
+      }
+    );
+
+    anim.onfinish = () => {
+      clone.remove();
+      targetWrapperEl!.style.visibility = "visible";
+    };
+  }, [frontIds, backIds]);
 
   // --- 拖拽处理 (HTML5 DnD) ---
   const handleDragStart = useCallback((e: React.DragEvent, tileId: number) => {
