@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useLayoutEffect } from "react";
 import { ALL_TILES } from "~/game/tiles";
 import { DominoTile, TileLabel } from "../DominoTile";
 import { evaluatePair, isArrangementValid, findBestArrangement } from "~/game/rules";
@@ -50,39 +50,98 @@ export function ArrangePractice() {
   const frontSlotRef = useRef<HTMLDivElement>(null);
   const backSlotRef = useRef<HTMLDivElement>(null);
   const tileRefs = useRef<Map<number, HTMLElement>>(new Map());
+  const frontTileRefs = useRef<Map<number, HTMLElement>>(new Map());
+  const backTileRefs = useRef<Map<number, HTMLElement>>(new Map());
 
-  const animateTileToSlot = useCallback((tileId: number, target: "front" | "back") => {
+  // 待执行的飞行动画信息
+  const pendingAnimationRef = useRef<{
+    tileId: number;
+    sourceRect: DOMRect;
+    direction: "toSlot" | "toHand";
+    slot: "front" | "back";
+  } | null>(null);
+
+  const handleTileClick = (tileId: number) => {
+    if (submitted) return;
+    if (frontIds.includes(tileId)) {
+      const wrapperEl = frontTileRefs.current.get(tileId);
+      const dominoEl = wrapperEl?.querySelector(".domino-tile") as HTMLElement | null;
+      const sourceRect = dominoEl?.getBoundingClientRect();
+      if (sourceRect) {
+        pendingAnimationRef.current = { tileId, sourceRect, direction: "toHand", slot: "front" };
+      }
+      setFrontIds(frontIds.filter((id) => id !== tileId));
+      return;
+    }
+    if (backIds.includes(tileId)) {
+      const wrapperEl = backTileRefs.current.get(tileId);
+      const dominoEl = wrapperEl?.querySelector(".domino-tile") as HTMLElement | null;
+      const sourceRect = dominoEl?.getBoundingClientRect();
+      if (sourceRect) {
+        pendingAnimationRef.current = { tileId, sourceRect, direction: "toHand", slot: "back" };
+      }
+      setBackIds(backIds.filter((id) => id !== tileId));
+      return;
+    }
     const wrapperEl = tileRefs.current.get(tileId);
-    const slotEl = target === "front" ? frontSlotRef.current : backSlotRef.current;
-    if (!wrapperEl || !slotEl) return;
+    const dominoEl = wrapperEl?.querySelector(".domino-tile") as HTMLElement | null;
+    const sourceRect = dominoEl?.getBoundingClientRect() ?? null;
+    if (frontIds.length < 2) {
+      if (sourceRect) {
+        pendingAnimationRef.current = { tileId, sourceRect, direction: "toSlot", slot: "front" };
+      }
+      setFrontIds([...frontIds, tileId]);
+    } else if (backIds.length < 2) {
+      if (sourceRect) {
+        pendingAnimationRef.current = { tileId, sourceRect, direction: "toSlot", slot: "back" };
+      }
+      setBackIds([...backIds, tileId]);
+    }
+  };
 
-    const dominoEl = wrapperEl.querySelector(".domino-tile") as HTMLElement;
+  // 状态更新后执行飞行动画
+  useLayoutEffect(() => {
+    const pending = pendingAnimationRef.current;
+    if (!pending) return;
+    pendingAnimationRef.current = null;
+
+    const { tileId, sourceRect, direction, slot } = pending;
+
+    let targetWrapperEl: HTMLElement | undefined;
+    if (direction === "toSlot") {
+      const targetRefs = slot === "front" ? frontTileRefs : backTileRefs;
+      targetWrapperEl = targetRefs.current.get(tileId);
+    } else {
+      targetWrapperEl = tileRefs.current.get(tileId);
+    }
+    if (!targetWrapperEl) return;
+
+    const dominoEl = targetWrapperEl.querySelector(".domino-tile") as HTMLElement;
     if (!dominoEl) return;
 
-    const srcRect = dominoEl.getBoundingClientRect();
-    const slotRect = slotEl.getBoundingClientRect();
+    const destRect = dominoEl.getBoundingClientRect();
 
     const clone = dominoEl.cloneNode(true) as HTMLElement;
     clone.style.position = "fixed";
-    clone.style.left = `${srcRect.left}px`;
-    clone.style.top = `${srcRect.top}px`;
-    clone.style.width = `${srcRect.width}px`;
-    clone.style.height = `${srcRect.height}px`;
+    clone.style.left = `${sourceRect.left}px`;
+    clone.style.top = `${sourceRect.top}px`;
+    clone.style.width = `${sourceRect.width}px`;
+    clone.style.height = `${sourceRect.height}px`;
     clone.style.zIndex = "9999";
     clone.style.pointerEvents = "none";
     clone.style.margin = "0";
     clone.classList.add("tile-flying");
     document.body.appendChild(clone);
 
-    const destX = slotRect.left + slotRect.width / 2 - srcRect.width / 2;
-    const destY = slotRect.top + slotRect.height / 2 - srcRect.height / 2;
-    const dx = destX - srcRect.left;
-    const dy = destY - srcRect.top;
+    targetWrapperEl.style.visibility = "hidden";
+
+    const dx = destRect.left - sourceRect.left;
+    const dy = destRect.top - sourceRect.top;
 
     const anim = clone.animate(
       [
-        { transform: "translate(0, 0) scale(1)", opacity: "1" },
-        { transform: `translate(${dx}px, ${dy}px) scale(0.95)`, opacity: "0" },
+        { transform: "translate(0, 0) scale(1)" },
+        { transform: `translate(${dx}px, ${dy}px) scale(1)` },
       ],
       {
         duration: 350,
@@ -91,16 +150,11 @@ export function ArrangePractice() {
       }
     );
 
-    anim.onfinish = () => clone.remove();
-  }, []);
-
-  const handleTileClick = (tileId: number) => {
-    if (submitted) return;
-    if (frontIds.includes(tileId)) { setFrontIds(frontIds.filter((id) => id !== tileId)); return; }
-    if (backIds.includes(tileId)) { setBackIds(backIds.filter((id) => id !== tileId)); return; }
-    if (frontIds.length < 2) { animateTileToSlot(tileId, "front"); setFrontIds([...frontIds, tileId]); }
-    else if (backIds.length < 2) { animateTileToSlot(tileId, "back"); setBackIds([...backIds, tileId]); }
-  };
+    anim.onfinish = () => {
+      clone.remove();
+      targetWrapperEl!.style.visibility = "visible";
+    };
+  }, [frontIds, backIds]);
 
   const handleReset = () => {
     setFrontIds([]);
@@ -158,7 +212,7 @@ export function ArrangePractice() {
         </div>
         <div ref={frontSlotRef} className={`slot-area min-h-[88px] ${isComplete && !isValid ? "invalid" : frontIds.length === 2 ? "valid" : ""}`}>
           {frontTiles.map((tile) => (
-            <div key={tile.id} className="flex flex-col items-center gap-0.5">
+            <div key={tile.id} ref={(el) => { if (el) frontTileRefs.current.set(tile.id, el); else frontTileRefs.current.delete(tile.id); }} className="flex flex-col items-center gap-0.5">
               <DominoTile tile={tile} selected onClick={() => handleTileClick(tile.id)} />
               <TileLabel tile={tile} />
             </div>
@@ -175,7 +229,7 @@ export function ArrangePractice() {
         </div>
         <div ref={backSlotRef} className={`slot-area min-h-[88px] ${isComplete && !isValid ? "invalid" : backIds.length === 2 ? "valid" : ""}`}>
           {backTiles.map((tile) => (
-            <div key={tile.id} className="flex flex-col items-center gap-0.5">
+            <div key={tile.id} ref={(el) => { if (el) backTileRefs.current.set(tile.id, el); else backTileRefs.current.delete(tile.id); }} className="flex flex-col items-center gap-0.5">
               <DominoTile tile={tile} selected onClick={() => handleTileClick(tile.id)} />
               <TileLabel tile={tile} />
             </div>
