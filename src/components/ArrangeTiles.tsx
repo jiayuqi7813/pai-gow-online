@@ -18,6 +18,10 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
   // 未分配牌的 DOM 引用，用于点击动画
   const tileRefs = useRef<Map<number, HTMLElement>>(new Map());
 
+  // 前道/后道槽位中牌的 DOM 引用，用于反向飞行动画
+  const frontTileRefs = useRef<Map<number, HTMLElement>>(new Map());
+  const backTileRefs = useRef<Map<number, HTMLElement>>(new Map());
+
   // 触摸拖拽状态
   const touchDragRef = useRef<{
     tileId: number;
@@ -104,13 +108,62 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
     anim.onfinish = () => clone.remove();
   }, []);
 
+  // 点击槽位牌时的飞行动画：从前道/后道槽位飞向手牌区
+  const animateTileToHand = useCallback((tileId: number, source: "front" | "back") => {
+    const sourceRefs = source === "front" ? frontTileRefs : backTileRefs;
+    const wrapperEl = sourceRefs.current.get(tileId);
+    const handEl = unassignedRef.current;
+    if (!wrapperEl || !handEl) return;
+
+    const dominoEl = wrapperEl.querySelector(".domino-tile") as HTMLElement;
+    if (!dominoEl) return;
+
+    const srcRect = dominoEl.getBoundingClientRect();
+    const handRect = handEl.getBoundingClientRect();
+
+    // 克隆牌面元素
+    const clone = dominoEl.cloneNode(true) as HTMLElement;
+    clone.style.position = "fixed";
+    clone.style.left = `${srcRect.left}px`;
+    clone.style.top = `${srcRect.top}px`;
+    clone.style.width = `${srcRect.width}px`;
+    clone.style.height = `${srcRect.height}px`;
+    clone.style.zIndex = "9999";
+    clone.style.pointerEvents = "none";
+    clone.style.margin = "0";
+    clone.classList.add("tile-flying");
+    document.body.appendChild(clone);
+
+    // 计算目标位置（手牌区中心）
+    const destX = handRect.left + handRect.width / 2 - srcRect.width / 2;
+    const destY = handRect.top + handRect.height / 2 - srcRect.height / 2;
+    const dx = destX - srcRect.left;
+    const dy = destY - srcRect.top;
+
+    const anim = clone.animate(
+      [
+        { transform: "translate(0, 0) scale(1)", opacity: "1" },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.95)`, opacity: "0" },
+      ],
+      {
+        duration: 350,
+        easing: "cubic-bezier(0.34, 1.2, 0.64, 1)",
+        fill: "forwards",
+      }
+    );
+
+    anim.onfinish = () => clone.remove();
+  }, []);
+
   const handleTileClick = (tileId: number) => {
     audioManager.play("cardSlide");
     if (frontIds.includes(tileId)) {
+      animateTileToHand(tileId, "front");
       setFrontIds(frontIds.filter((id) => id !== tileId));
       return;
     }
     if (backIds.includes(tileId)) {
+      animateTileToHand(tileId, "back");
       setBackIds(backIds.filter((id) => id !== tileId));
       return;
     }
@@ -320,6 +373,10 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
           {frontTiles.map((tile) => (
             <div
               key={tile.id}
+              ref={(el) => {
+                if (el) frontTileRefs.current.set(tile.id, el);
+                else frontTileRefs.current.delete(tile.id);
+              }}
               className="flex flex-col items-center gap-0.5 cursor-grab active:cursor-grabbing touch-none"
               draggable
               onDragStart={(e) => handleDragStart(e, tile.id)}
@@ -373,6 +430,10 @@ export function ArrangeTiles({ tiles, onSubmit, timeLeft }: ArrangeTilesProps) {
           {backTiles.map((tile) => (
             <div
               key={tile.id}
+              ref={(el) => {
+                if (el) backTileRefs.current.set(tile.id, el);
+                else backTileRefs.current.delete(tile.id);
+              }}
               className="flex flex-col items-center gap-0.5 cursor-grab active:cursor-grabbing touch-none"
               draggable
               onDragStart={(e) => handleDragStart(e, tile.id)}
